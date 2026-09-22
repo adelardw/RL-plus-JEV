@@ -24,7 +24,7 @@ from rljevf.guardrails import require_experiment_host
 
 
 def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm,
-               optim="adamw_torch"):
+               optim="adamw_torch", lora_r=0):
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import GRPOConfig, GRPOTrainer
 
@@ -51,9 +51,20 @@ def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm,
         bf16=bf16, fp16=torch.cuda.is_available() and not bf16,
         use_vllm=use_vllm, temperature=1.0, top_p=1.0, optim=optim,
     )
+    peft_config = None
+    if lora_r > 0:
+        from peft import LoraConfig
+
+        peft_config = LoraConfig(
+            r=lora_r, lora_alpha=2 * lora_r, lora_dropout=0.0, bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"])
+
     t = time.perf_counter()
     tr = GRPOTrainer(model=model, reward_funcs=rew, args=cfg,
-                     train_dataset=ds, processing_class=tok)
+                     train_dataset=ds, processing_class=tok,
+                     peft_config=peft_config)
     build = time.perf_counter() - t
     t = time.perf_counter()
     tr.train()
@@ -61,10 +72,12 @@ def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm,
     peak = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0
     return {"build_s": round(build, 1), "total_s": round(total, 1),
             "s_per_step": round(total / steps, 2), "peak_vram_gb": round(peak, 2),
-            "completions_per_step": gen_bs, "use_vllm": use_vllm, "optim": optim}
+            "completions_per_step": gen_bs, "use_vllm": use_vllm,
+            "optim": optim, "lora_r": lora_r}
 
 
-def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs, forward_chunk=2):
+def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs,
+              forward_chunk=2, lora_r=0):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from rljevf.data import filter_by_prompt_tokens, rl_prompts
@@ -75,8 +88,18 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs, forward_chu
         tok.pad_token = tok.eos_token
     ds = filter_by_prompt_tokens(rl_prompts(n=256, seed=0), tok, 512)
     policy = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
-    ref = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
     policy.config.use_cache = False
+    if lora_r > 0:
+        from peft import LoraConfig, get_peft_model
+
+        policy = get_peft_model(policy, LoraConfig(
+            r=lora_r, lora_alpha=2 * lora_r, lora_dropout=0.0, bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"]))
+        ref = None
+    else:
+        ref = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
 
     from rljevf.critic.jev_critic import LearnedValueCritic
     critic = LearnedValueCritic(policy)
@@ -95,6 +118,7 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs, forward_chu
     peak = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0
     return {"total_s": round(total, 1), "s_per_step": round(total / steps, 2),
             "peak_vram_gb": round(peak, 2), "completions_per_step": prompts,
+            "lora_r": lora_r,
             "step_times": [h["step_time_s"] for h in hist]}
 
 
@@ -139,8 +163,12 @@ def main() -> None:
     ap.add_argument("--forward-chunk", type=int, default=2)
     ap.add_argument("--skip-vllm", action="store_true")
     ap.add_argument("--skip-ppo", action="store_true")
-    ap.add_argument("--optims", default="adamw_torch,adafactor",
+    ap.add_argument("--optims", default="adamw_torch",
                     help="optimisers to try, cheapest state last")
+    ap.add_argument("--lora-r", type=int, default=16,
+                    help="LoRA rank to benchmark; 0 also measures full "
+                         "fine-tuning, which does not fit on a T4 for this "
+                         "policy at any batch size")
     ap.add_argument("--out", default="/kaggle/working/results/gpu_benchmark.json")
     ap.add_argument("--smoke", action="store_true",
                     help="allow running off-GPU to check the code path")
@@ -153,11 +181,11 @@ def main() -> None:
                    reverse=True)
     for optim in [o for o in args.optims.split(",") if o]:
         for vllm in ([False] if args.skip_vllm else [False, True]):
-            key = f"grpo_vllm={vllm}_optim={optim}"
+            key = f"grpo_vllm={vllm}_optim={optim}_lora={args.lora_r}"
             res[key] = autofit(
                 lambda micro_bs, _o=optim, _v=vllm, **kw: bench_grpo(
                     args.model, args.steps, args.grpo_prompts, args.grpo_g,
-                    args.max_new, micro_bs, _v, _o),
+                    args.max_new, micro_bs, _v, _o, args.lora_r),
                 key, sizes)
             print(key, res[key], flush=True)
             if torch.cuda.is_available():
@@ -167,8 +195,9 @@ def main() -> None:
         res["ppo"] = autofit(
             lambda micro_bs, **kw: bench_ppo(
                 args.model, args.steps, args.ppo_prompts, args.max_new,
-                micro_bs, args.gen_bs, min(args.forward_chunk, micro_bs)),
-            "ppo", [s for s in (4, 2, 1) if s <= args.micro_bs] or [1])
+                micro_bs, args.gen_bs, min(args.forward_chunk, micro_bs),
+                args.lora_r),
+            "ppo", [s for s in (8, 4, 2, 1) if s <= args.micro_bs] or [1])
         print("ppo", res["ppo"], flush=True)
 
     # what the weekly quota buys
