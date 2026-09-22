@@ -443,16 +443,26 @@ the 3B model is below the Bradley--Terry reward model it is supposed to
 improve on. That is why the RLAIF arm uses a hosted judge, read from logits so
 that the fairness protocol of Section~\ref{sec:parsefree} still holds.
 
-Second, and this is the efficiency claim the paper rests on:
-\jev{} scores 300 pairs at 0.640 accuracy in 6 seconds, while the 7B local
-judge reaches 0.647 in 1831 seconds --- a difference of 0.7 accuracy points
-against a factor of 310 in wall-clock. The 7B judge also had to be sharded
-across both GPUs to run at all, occupying roughly 22\,GB, against none for the
-typed model. We do not claim \jev{} is the better judge; at this sample size
-those two accuracies are not distinguishable, which is precisely the point.
-The claim is that equivalent judgement is available at a cost that makes
-querying it $K$ times per completion --- the critic role --- affordable, and
-that this is what changes which algorithms are reachable.
+Second, the efficiency claim, stated carefully because the obvious version of
+it is not defensible. \input{tables/efficiency_inline.tex}\unskip{} That ratio
+compares two \emph{deployment modes}, not two models: \jev{} is queried over the
+network at concurrency 48, while the local judge runs on one GPU at a fixed
+batch size. Table~\ref{tab:throughput} sweeps that batch size so the part of the
+gap that tuning can close is separated from the part that cannot, and we take
+the tuned figure as the comparison.
+
+What does not depend on tuning is where the computation has to happen. During
+RL the local judge occupies the same accelerator as the policy it is scoring:
+it cannot overlap with generation, and on the 14.6\,GB cards used here a 7--8B
+judge does not fit beside the policy at all --- it had to be sharded across both
+GPUs simply to run. A judge reached over the network contends for nothing. This
+matters more in the critic role than in the reward role, because a critic is
+queried $K$ times per completion rather than once, so the arithmetic that
+decides feasibility is $K$ times harsher. We therefore report wall-clock, peak
+memory and dollars per judgement and let the reader apply their own hardware,
+rather than resting the argument on a single ratio.
+
+\input{tables/judge_throughput.tex}
 
 \subsection{Is \jev{}'s prefix probability a value function?}
 \label{sec:res-calibration}

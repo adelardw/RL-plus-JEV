@@ -83,6 +83,9 @@ def main() -> None:
     ap.add_argument("--api-judges", default="deepseek/deepseek-v4-flash-0731",
                     help="comma-separated hosted judges read via logprobs")
     ap.add_argument("--max-chars", type=int, default=4000)
+    ap.add_argument("--judge-batch-size", type=int, default=16,
+                    help="batch 4 left the local judges untuned, which made the "
+                         "wall-clock comparison a comparison of configurations")
     ap.add_argument("--split", default="test_prefs",
                     choices=["test_prefs", "train_prefs"],
                     help="judges are measured on the held-out split")

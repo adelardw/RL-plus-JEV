@@ -115,6 +115,63 @@ Reward source & Accuracy (\\%) & Cohen's $d$ & Mean margin & Wall-clock (s) \\\\
 \\end{{table}}""")
 
 
+
+def t_efficiency_inline() -> None:
+    d = load("judge_benchmark.json")
+    if d is None:
+        write("efficiency_inline.tex",
+              "\\todo{efficiency figures pending the full-size run}")
+        return
+    src = d["sources"]
+    jev = src.get("jev")
+    local = max((v for k, v in src.items()
+                 if k.startswith("llm_judge:") and "wall_s" in v),
+                key=lambda v: v.get("accuracy", 0), default=None)
+    if not jev or not local:
+        write("efficiency_inline.tex", "\\todo{efficiency figures pending}")
+        return
+    name = [k for k, v in src.items() if v is local][0].split(":")[-1]
+    write("efficiency_inline.tex",
+          f"Scoring the {2*d['n']:,} judgements of Table~\\ref{{tab:judges}} took "
+          f"{jev['wall_s']:.0f}\\,s through \\jev{{}} and {local['wall_s']:.0f}\\,s with "
+          f"\\texttt{{{name}}}, at accuracies of {jev['accuracy']:.3f} and "
+          f"{local['accuracy']:.3f}.".replace(",", "{,}", 1))
+
+
+def t_judge_throughput() -> None:
+    d = load("judge_throughput.json")
+    if d is None:
+        write("judge_throughput.tex",
+              placeholder("Local judge throughput against batch size.", "tab:throughput"))
+        return
+    rows = []
+    for bs in sorted(d["local"], key=int):
+        v = d["local"][bs]
+        if "judgements_per_s" not in v:
+            continue
+        rows.append(f"local, batch {bs} & {v['judgements_per_s']:.2f} & "
+                    f"{v['peak_vram_gb']:.1f} & -- \\\\")
+    for cc in sorted(d.get("jev", {}), key=int):
+        v = d["jev"][cc]
+        rows.append(f"\\jev{{}}, concurrency {cc} & {v['judgements_per_s']:.2f} & "
+                    f"0.0 & {v['cost_usd']:.4f} \\\\")
+    body = "\n".join(rows)
+    write("judge_throughput.tex", f"""\\begin{{table}}[t]\\centering\\small
+\\caption{{Judgements per second against the setting that controls them, on
+$n={d['n']}$ pairs. Sweeping the local judge's batch size separates the part of
+its disadvantage that tuning closes from the part that does not: the peak-memory
+column is taken from the policy during RL, and no batch size returns it.}}
+\\label{{tab:throughput}}
+\\begin{{tabular}}{{lccc}}
+\\toprule
+Configuration & Judgements/s & Peak VRAM (GB) & USD \\\\
+\\midrule
+{body}
+\\bottomrule
+\\end{{tabular}}
+\\end{{table}}""")
+
+
 def t_calibration() -> None:
     d = load("calibration_study.json")
     if d is None:
@@ -361,7 +418,8 @@ Arm & Reward calls & USD & p50 (s) & p95 (s) & GPU-h \\\\
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.parse_args()
-    for f in (t_jev_properties, t_judge_benchmark, t_calibration, t_probe_density, t_setup,
+    for f in (t_jev_properties, t_judge_benchmark, t_efficiency_inline,
+              t_judge_throughput, t_calibration, t_probe_density, t_setup,
               t_grpo, t_ppo, t_cross, t_sg2jev, t_cost):
         f()
 
