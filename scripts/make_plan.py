@@ -116,6 +116,40 @@ def pack(jobs, session_seconds, reserve_seconds):
     return sessions
 
 
+
+def feasibility(quota_hours: float = 30.0, arms: int = 6, seeds: int = 3,
+                eval_seconds: int = 900) -> None:
+    """What the study costs at a given throughput, and what has to give.
+
+    The estimate that matters is seconds per optimisation step, and it is not
+    knowable in advance: full fine-tuning measured 464 s/step under memory
+    pressure, which would put a single 180-step run at 23 hours. This prints
+    the configuration frontier so that when the benchmark lands, the decision
+    is arithmetic rather than another session spent finding out.
+    """
+    print(f"{'s/step':>7} {'per run':>9} {'training':>10} {'+eval':>8} "
+          f"{'total':>8}  verdict")
+    n_runs = 1 + arms * seeds          # + the shared SFT checkpoint
+    for sps in (5, 10, 15, 20, 30, 45, 60):
+        for steps in (180,):
+            run_h = sps * steps / 3600
+            train_h = run_h * arms * seeds
+            eval_h = eval_seconds * arms * seeds / 3600
+            total = train_h + eval_h + 0.7
+            if total <= quota_hours:
+                verdict = f"fits in one week ({quota_hours - total:.1f}h spare)"
+            elif total <= 2 * quota_hours:
+                verdict = "two weeks"
+            else:
+                weeks = total / quota_hours
+                cut = int(steps * quota_hours / total)
+                verdict = f"{weeks:.1f} weeks, or cut to {cut} steps"
+            print(f"{sps:7.0f} {run_h:8.2f}h {train_h:9.1f}h {eval_h:7.1f}h "
+                  f"{total:7.1f}h  {verdict}")
+    print(f"\n({n_runs} runs: {arms} arms x {seeds} seeds, plus SFT; "
+          f"quota {quota_hours:.0f} GPU-h/week)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--benchmark", default="results/gpu_benchmark.json")
@@ -125,7 +159,13 @@ def main() -> None:
     ap.add_argument("--quota-hours", type=float, default=30.0)
     ap.add_argument("--no-eval", dest="with_eval", action="store_false", default=True)
     ap.add_argument("--out-dir", default="jobs")
+    ap.add_argument("--feasibility", action="store_true",
+                    help="print what the study costs at a range of throughputs")
     args = ap.parse_args()
+
+    if args.feasibility:
+        feasibility(quota_hours=args.quota_hours)
+        return
 
     sps = measured_s_per_step(PROJECT / args.benchmark)
     jobs = build(sps, args.session_seconds, args.reserve_seconds,

@@ -184,6 +184,27 @@ comparison is unaffected; absolute numbers under full fine-tuning would differ.
 Settings adopted: LoRA r=16 on all attention and MLP projections, micro-batch 8,
 `adamw_torch`.
 
+**The prediction was then confirmed on hardware.** With full fine-tuning the
+benchmark OOMed at micro-batch 8, 4, 2 *and* 1 -- "does not fit at any batch
+size", exactly as the model said. The one step that did complete, at
+micro-batch 4, took 464 s under memory pressure, which would put a single
+180-step run at 23 hours. Full fine-tuning is therefore infeasible twice over,
+on memory and on throughput, and LoRA is not an optimisation but a requirement.
+
+### The throughput frontier
+`scripts/make_plan.py --feasibility` prints what the study costs against
+seconds per step, so the decision is arithmetic once the benchmark lands:
+
+| s/step | per run | training | + eval | total | verdict |
+|---|---|---|---|---|---|
+| 5 | 0.25 h | 4.5 h | 4.5 h | 9.7 h | one week, 20.3 h spare |
+| 20 | 1.00 h | 18.0 h | 4.5 h | 23.2 h | one week, 6.8 h spare |
+| 30 | 1.50 h | 27.0 h | 4.5 h | 32.2 h | two weeks |
+| 60 | 3.00 h | 54.0 h | 4.5 h | 59.2 h | two weeks |
+
+**20 s/step is the threshold**: at or below it the whole study fits one weekly
+quota; above it, steps or seeds have to give.
+
 ## Open problems
 
 1. **Policy scale is 0.5B.** The first question any reviewer asks. Not fixable
