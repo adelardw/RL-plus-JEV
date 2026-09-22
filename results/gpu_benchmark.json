@@ -1,20 +1,16 @@
 {
  "model": "Qwen/Qwen2.5-0.5B-Instruct",
  "device": "Tesla T4",
- "grpo_vllm=False_optim=adamw_torch": {
-  "error": "no micro-batch size fitted",
-  "fit": false
- },
- "grpo_vllm=False_optim=adafactor": {
-  "error": "no micro-batch size fitted",
-  "fit": false
- },
- "grpo_vllm=False_optim=adamw_bnb_8bit": {
-  "error": "no micro-batch size fitted",
+ "grpo_vllm=False_optim=adamw_torch_lora=16": {
+  "error": "ImportError: Found an incompatible version of torchao. Found version 0.10.0, but only versions above 0.16.0 are supported",
+  "micro_bs": 8,
+  "prompts": 16,
   "fit": false
  },
  "ppo": {
-  "error": "no micro-batch size fitted",
+  "error": "ImportError: Found an incompatible version of torchao. Found version 0.10.0, but only versions above 0.16.0 are supported",
+  "micro_bs": 4,
+  "prompts": 16,
   "fit": false
  },
  "schedule": {}

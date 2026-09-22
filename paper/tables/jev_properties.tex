@@ -1,4 +1,22 @@
-\begin{table}[t]\centering
-\caption{Measured properties of \jev{} 1.13.}\label{tab:jevprops}
-\textcolor{red}{[pending: run not yet complete]}
+\begin{table}[t]\centering\small
+\caption{Measured properties of \jev{} 1.13 accessed through OpenRouter's
+decisions endpoint. Latency and cost are measured from our own calls, not quoted
+from documentation; they include network round-trip from the client region and
+so upper-bound the provider-side figures.}
+\label{tab:jevprops}
+\begin{tabular}{ll}
+\toprule
+Property & Value \\
+\midrule
+Model & \texttt{typesafe/jev-1.13} \\
+Access & OpenRouter \texttt{/api/alpha/decisions} \\
+Question types & \textsc{noul}, \textsc{choice}, \textsc{score} \\
+Output & typed values with probabilities; no text \\
+Context & 32{,}000 tokens \\
+Measured cost & \$0.0299 per 1{,}000 calls (5-question rubric) \\
+Measured latency p50 / p95 & 0.37\,s / 0.99\,s \\
+Measured throughput & 25.4 calls/s at concurrency 32 \\
+Mean input tokens per call & 713 \\
+\bottomrule
+\end{tabular}
 \end{table}

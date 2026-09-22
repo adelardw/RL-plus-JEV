@@ -1,0 +1,54 @@
+{
+ "n": 200,
+ "model": "Qwen/Qwen2.5-3B-Instruct",
+ "local": {
+  "4": {
+   "wall_s": 277.4,
+   "judgements_per_s": 0.72,
+   "peak_vram_gb": 4.28
+  },
+  "8": {
+   "wall_s": 326.4,
+   "judgements_per_s": 0.61,
+   "peak_vram_gb": 5.67
+  },
+  "16": {
+   "wall_s": 393.7,
+   "judgements_per_s": 0.51,
+   "peak_vram_gb": 8.45
+  },
+  "32": {
+   "error": "AcceleratorError: CUDA error: unspecified launch failure\nSearch for `cudaErrorLaunchFailure' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n"
+  }
+ },
+ "jev": {
+  "8": {
+   "wall_s": 5.9,
+   "judgements_per_s": 33.64,
+   "cost_usd": 0.008924,
+   "p50_s": 0.2082,
+   "peak_vram_gb": 0.0
+  },
+  "16": {
+   "wall_s": 3.5,
+   "judgements_per_s": 56.92,
+   "cost_usd": 0.008924,
+   "p50_s": 0.2135,
+   "peak_vram_gb": 0.0
+  },
+  "32": {
+   "wall_s": 2.4,
+   "judgements_per_s": 83.54,
+   "cost_usd": 0.008924,
+   "p50_s": 0.2269,
+   "peak_vram_gb": 0.0
+  },
+  "48": {
+   "wall_s": 2.2,
+   "judgements_per_s": 91.19,
+   "cost_usd": 0.008924,
+   "p50_s": 0.2276,
+   "peak_vram_gb": 0.0
+  }
+ }
+}

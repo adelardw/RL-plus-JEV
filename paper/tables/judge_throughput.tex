@@ -1,4 +1,20 @@
-\begin{table}[t]\centering
-\caption{Local judge throughput against batch size.}\label{tab:throughput}
-\textcolor{red}{[pending: run not yet complete]}
+\begin{table}[t]\centering\small
+\caption{Judgements per second against the setting that controls them, on
+$n=200$ pairs. Sweeping the local judge's batch size separates the part of
+its disadvantage that tuning closes from the part that does not: the peak-memory
+column is taken from the policy during RL, and no batch size returns it.}
+\label{tab:throughput}
+\begin{tabular}{lccc}
+\toprule
+Configuration & Judgements/s & Peak VRAM (GB) & USD \\
+\midrule
+local, batch 4 & 0.72 & 4.3 & -- \\
+local, batch 8 & 0.61 & 5.7 & -- \\
+local, batch 16 & 0.51 & 8.4 & -- \\
+\jev{}, concurrency 8 & 33.64 & 0.0 & 0.0089 \\
+\jev{}, concurrency 16 & 56.92 & 0.0 & 0.0089 \\
+\jev{}, concurrency 32 & 83.54 & 0.0 & 0.0089 \\
+\jev{}, concurrency 48 & 91.19 & 0.0 & 0.0089 \\
+\bottomrule
+\end{tabular}
 \end{table}

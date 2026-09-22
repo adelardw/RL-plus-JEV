@@ -64,10 +64,21 @@ def bench_grpo(model_name, steps, G, max_new, use_vllm,
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                             "gate_proj", "up_proj", "down_proj"])
 
+    from transformers import TrainerCallback
+
+    timer = StepTimer()
+
+    class _Cb(TrainerCallback):
+        def on_step_begin(self, *a, **kw):
+            timer.on_step_begin()
+
+        def on_step_end(self, *a, **kw):
+            timer.on_step_end()
+
     t = time.perf_counter()
     tr = GRPOTrainer(model=model, reward_funcs=rew, args=cfg,
                      train_dataset=ds, processing_class=tok,
-                     peft_config=peft_config)
+                     peft_config=peft_config, callbacks=[_Cb()])
     build = time.perf_counter() - t
     probe.mark("trainer built (+reference)")
     t = time.perf_counter()
@@ -83,7 +94,8 @@ def bench_grpo(model_name, steps, G, max_new, use_vllm,
     return {"build_s": round(build, 1), "total_s": round(total, 1),
             "s_per_step": round(total / steps, 2), "peak_vram_gb": round(peak, 2),
             "completions_per_step": gen_bs, "use_vllm": use_vllm,
-            "optim": optim, "lora_r": lora_r, "vram_phases": probe.report()}
+            "optim": optim, "lora_r": lora_r, "vram_phases": probe.report(),
+            **timer.summary()}
 
 
 def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs,
@@ -135,6 +147,39 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs,
             "lora_r": lora_r,
             "step_times": [h["step_time_s"] for h in hist]}
 
+
+
+class StepTimer:
+    """Per-step wall-clock, because an average over four steps hides warmup.
+
+    The first optimisation step pays for CUDA context, autotuning and whatever
+    the generation backend compiles on first use. Averaged over a short run
+    that cost lands on every step and the result reads as a throughput figure
+    when it is mostly a one-off.
+    """
+
+    def __init__(self):
+        self.times: list[float] = []
+        self._t = None
+
+    def on_step_begin(self, *a, **kw):
+        self._t = time.perf_counter()
+
+    def on_step_end(self, *a, **kw):
+        if self._t is not None:
+            self.times.append(round(time.perf_counter() - self._t, 2))
+            self._t = None
+
+    def summary(self) -> dict:
+        if not self.times:
+            return {}
+        rest = self.times[1:] or self.times
+        return {
+            "step_times": self.times,
+            "first_step_s": self.times[0],
+            "steady_s_per_step": round(sum(rest) / len(rest), 2),
+            "warmup_overhead_s": round(self.times[0] - sum(rest) / len(rest), 1),
+        }
 
 
 class MemoryProbe:
