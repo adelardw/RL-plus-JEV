@@ -67,8 +67,7 @@ class LLMJudgeRewardSource(BaseRewardSource):
             dtype = torch.float16 if self.device in ("cuda", "mps") else torch.float32
         if model is None:
             assert model_name, "pass model_name or a model"
-            model = AutoModelForCausalLM.from_pretrained(model_name, dtype=dtype)
-            model.to(self.device)
+            model = self._load(model_name, dtype)
         self.model = model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)
@@ -82,6 +81,31 @@ class LLMJudgeRewardSource(BaseRewardSource):
             n: _ids_for(self.tok, [str(n), f" {n}"]) for n in range(10)
         }
         self.n_forward = 0
+
+
+    def _load(self, model_name: str, dtype):
+        """Load the judge, spreading it over every visible GPU if it does not
+        fit on one. A 7-8B judge in fp16 is ~15GB and a T4 has 14.6GB, so the
+        single-card path silently rules out exactly the judge sizes that are
+        competent enough to be worth comparing against."""
+        n_gpu = torch.cuda.device_count()
+        if n_gpu > 1:
+            try:
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_name, dtype=dtype, device_map="auto",
+                    max_memory={i: "13GiB" for i in range(n_gpu)},
+                )
+                self.device = next(model.parameters()).device
+                self.sharded = True
+                print(f"judge {model_name} sharded over {n_gpu} GPUs", flush=True)
+                return model
+            except Exception as e:  # noqa: BLE001
+                print(f"sharded load failed ({type(e).__name__}); "
+                      f"falling back to one device", flush=True)
+        model = AutoModelForCausalLM.from_pretrained(model_name, dtype=dtype)
+        model.to(self.device)
+        self.sharded = False
+        return model
 
     # -- prompt construction -------------------------------------------------
     def _question_text(self, item: RubricItem) -> str:
@@ -120,7 +144,8 @@ class LLMJudgeRewardSource(BaseRewardSource):
         for i in range(0, len(rendered), self.batch_size):
             chunk = rendered[i : i + self.batch_size]
             enc = self.tok(chunk, return_tensors="pt", padding=True, truncation=False)
-            enc = {k: v.to(self.device) for k, v in enc.items()}
+            dev = getattr(self.model, "device", self.device)
+            enc = {k: v.to(dev) for k, v in enc.items()}
             logits = self.model(**enc).logits[:, -1, :].float()
             rows.append(torch.softmax(logits, dim=-1).cpu())
             self.n_forward += len(chunk)

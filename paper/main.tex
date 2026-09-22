@@ -7,6 +7,8 @@
 \usepackage[hidelinks]{hyperref}
 \usepackage{natbib}
 \usepackage{caption}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 
 \newcommand{\jev}{\textsc{Jev}}
 \newcommand{\todo}[1]{\textcolor{red}{[#1]}}
@@ -232,6 +234,41 @@ loss term, no value learning rate and no value optimiser state. Against the
 learned-critic arm it differs in exactly that, since both run through the same
 PPO implementation.
 
+\begin{algorithm}[t]
+\caption{PPO with \jev{} as the critic. Differences from textbook PPO are the
+lines marked $\triangleright$; everything else, including the clipped surrogate
+and the KL shaping, is unchanged.}
+\label{alg:jevcritic}
+\begin{algorithmic}[1]
+\State \textbf{calibrate once:} sample $(x, y)$ from $\pi_{\text{SFT}}$;
+  fit $a, b$ minimising $\sum (a\,p(x,y) + b - R(x,y))^2$
+  \Comment{$\triangleright$ puts $\hat V$ in reward units}
+\For{each step}
+  \State sample completions $y \sim \pi_\theta(\cdot \mid x)$
+  \State $R \gets$ rubric$(x, y)$ \Comment{terminal reward, one \jev{} call per completion}
+  \State $r_t \gets -\beta\big(\log \pi_\theta(y_t) - \log \pi_{\text{ref}}(y_t)\big)$;\;
+         $r_{T-1} \mathrel{+}= R$
+  \For{$k = 1 \dots K$} \Comment{$\triangleright$ $K$ prefix probes, not a value net}
+    \State $t_k \gets \lfloor k(T-1)/(K-1) \rceil$;\quad
+           $p_{t_k} \gets \textsc{Jev}\big(x,\, y_{<t_k},\, q_{\text{prefix}}\big)$
+  \EndFor
+  \State $\hat V(s_t) \gets a \cdot \textsc{interp}(t; \{t_k\}, \{p_{t_k}\}) + b$,\;
+         $\hat V(s_T) \gets 0$
+         \Comment{$\triangleright$ frozen, no gradient}
+  \State $\delta_t \gets r_t + \gamma \hat V(s_{t+1}) - \hat V(s_t)$;\;
+         $A_t \gets \sum_{l} (\gamma\lambda)^{l} \delta_{t+l}$
+  \State update $\theta$ on the clipped surrogate
+         \Comment{$\triangleright$ no value loss term}
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Cost of the critic.} The arm spends $K$ extra \jev{} calls per
+completion. At the measured price this is a fraction of a cent per step and
+buys token-level credit assignment; the comparison in
+Section~\ref{sec:res-calibration} is what decides whether the signal is worth
+it, and Table~\ref{tab:cost} reports what it cost.
+
 \subsection{\textsc{StructuredGeneration2Jev}}
 \label{sec:sg2jev}
 The component that decides \emph{which} questions \jev{} is asked is a swappable
@@ -259,6 +296,13 @@ mean $\pm$ standard deviation.
 
 \section{Experimental setup}
 
+The policy is a small Qwen2.5 instruct model \citep{qwen2025qwen25}; prompts and
+preference pairs come from UltraFeedback \citep{cui2023ultrafeedback}; training
+uses TRL \citep{vonwerra2020trl} for SFT, GRPO and the reward model, and our own
+PPO implementation for the critic comparison, because TRL 1.13 no longer ships a
+PPO trainer and because one implementation with a swappable critic is what makes
+that comparison exact.
+
 \input{tables/setup.tex}
 
 \subsection{Evaluation}
@@ -276,11 +320,13 @@ prompts.
 $\mathrm{KL}(\pi \,\|\, \pi_{\text{ref}})$, not at equal step count; a reward
 source that moves faster per step is not thereby better.
 
-\paragraph{Hacking detectors.} GSM8K accuracy (a judge can be talked into
+\paragraph{Hacking detectors.} GSM8K accuracy \citep{cobbe2021gsm8k} (a judge can be talked into
 approval; arithmetic cannot), mean response length, self-praise phrase rate,
 distinct-2, and the gap between training reward and held-out quality.
 
-\paragraph{Cross-reward matrix.} Every final checkpoint is scored by
+\paragraph{Cross-reward matrix.} Over-optimising a learned proxy is a
+well-documented failure of RLHF \citep{gao2023scaling}, and a judge-based reward
+is a proxy like any other. Every final checkpoint is scored by
 \emph{every} reward source. The diagonal is what a run optimised; the
 off-diagonal is what the other judges make of it. We report
 $\text{diag} - \overline{\text{off-diag}}$ in baseline-relative units as an
@@ -317,6 +363,34 @@ straw man rather than a baseline.
 
 \subsection{Cost}
 \input{tables/cost.tex}
+
+\section{Discussion}
+
+\paragraph{What a typed interface buys, and what it does not.} The advantages
+we can attribute to \jev{} are structural rather than mysterious: a rubric is a
+set of predeclared questions, which is its native input; answers arrive as
+numbers, so nothing is lost to parsing; and a judgment costs one prefill, so a
+dense multi-criterion reward is affordable at RL scale. None of this implies
+\jev{} is a \emph{better} evaluator than a large LLM judge, and
+Section~\ref{sec:res-judges} measures that separately rather than assuming it.
+The interesting claim is narrower: for the specific shape of question RL needs
+answered, millions of times, the typed interface removes cost and failure modes
+that the generative interface imposes.
+
+\paragraph{Why the critic role is the one that could not be filled before.}
+An LLM judge could in principle be asked our prefix question too. What makes it
+impractical is arithmetic: a critic is queried at $K$ positions per completion,
+so the query count is $K$ times the reward count, and at LLM-judge latency and
+price that dominates the run. The typed model changes the constant factor by
+enough to change which algorithms are reachable. This is the sense in which the
+result is about a class of models and not about one vendor.
+
+\paragraph{On self-promotion as an attack surface.} The policy's text is inside
+the judge's state, which makes ``write something the judge reads as evidence of
+quality'' a gradient direction like any other. We both penalise it in the
+rubric and track it independently, and we report the cross-reward matrix so
+that a policy which moved towards its own judge is visible as a gap rather than
+as an improvement.
 
 \section{Limitations}
 \jev{} is a closed model with no published architecture or weights, so its

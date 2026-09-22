@@ -1670,6 +1670,7 @@ name = "rljevf"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "accelerate" },
     { name = "datasets" },
     { name = "httpx" },
     { name = "kaggle" },
@@ -1686,6 +1687,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "accelerate", specifier = ">=1.15.0" },
     { name = "datasets", specifier = ">=5.0.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "kaggle", specifier = ">=2.2.4" },
