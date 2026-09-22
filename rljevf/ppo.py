@@ -519,14 +519,29 @@ class PPOTrainer:
         if not sf.exists():
             return False
         state = torch.load(sf, map_location="cpu", weights_only=False)
-        from transformers import AutoModelForCausalLM
 
-        loaded = AutoModelForCausalLM.from_pretrained(
-            d / "policy", dtype=next(self.policy.parameters()).dtype
-        )
-        self.policy.load_state_dict(loaded.state_dict())
-        self.policy.to(self.device)
-        del loaded
+        # A LoRA policy saves only its adapter. Reloading that directory with
+        # AutoModelForCausalLM returns the base model with the adapter silently
+        # dropped, so the resumed run would restore the optimiser and the step
+        # counter onto *untrained* weights.
+        if (d / "policy" / "adapter_config.json").is_file():
+            from peft import set_peft_model_state_dict
+            from safetensors.torch import load_file
+
+            w = d / "policy" / "adapter_model.safetensors"
+            if not w.exists():
+                raise FileNotFoundError(f"adapter weights missing at {w}")
+            set_peft_model_state_dict(self.policy, load_file(str(w)))
+            self.policy.to(self.device)
+        else:
+            from transformers import AutoModelForCausalLM
+
+            loaded = AutoModelForCausalLM.from_pretrained(
+                d / "policy", dtype=next(self.policy.parameters()).dtype
+            )
+            self.policy.load_state_dict(loaded.state_dict())
+            self.policy.to(self.device)
+            del loaded
         self.opt.load_state_dict(state["optimizer"])
         if not self.external_critic and "v_head" in state:
             self.critic.v_head.load_state_dict(state["v_head"])

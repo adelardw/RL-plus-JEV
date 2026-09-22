@@ -4,11 +4,22 @@ from __future__ import annotations
 
 from typing import Sequence
 
+from pathlib import Path
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def load_policy(path: str, device: str | None = None, dtype=None):
+    """Load a checkpoint, applying a LoRA adapter if that is what was saved.
+
+    This is explicit because the implicit path fails silently and catastrophically:
+    `AutoModelForCausalLM.from_pretrained` on an adapter-only directory returns
+    the *base* model with the adapter ignored -- no error, no warning, weights
+    bit-identical to the untrained checkpoint. Every arm would then evaluate as
+    its own baseline and the study would conclude that the reward source makes
+    no difference.
+    """
     device = device or (
         "cuda" if torch.cuda.is_available()
         else "mps" if torch.backends.mps.is_available()
@@ -16,8 +27,33 @@ def load_policy(path: str, device: str | None = None, dtype=None):
     )
     if dtype is None:
         dtype = torch.float16 if device in ("cuda", "mps") else torch.float32
-    model = AutoModelForCausalLM.from_pretrained(path, dtype=dtype).to(device).eval()
-    tok = AutoTokenizer.from_pretrained(path)
+
+    p = Path(path)
+    adapter_cfg = p / "adapter_config.json"
+    if adapter_cfg.is_file():
+        import json
+
+        from peft import PeftModel
+
+        base_id = json.loads(adapter_cfg.read_text()).get("base_model_name_or_path")
+        if not base_id:
+            raise ValueError(f"{adapter_cfg} names no base model")
+        if not (Path(base_id).exists() or "/" in str(base_id)):
+            raise FileNotFoundError(
+                f"adapter at {p} needs its base model {base_id!r}, which is not "
+                f"present -- an adapter cannot be evaluated without it"
+            )
+        base = AutoModelForCausalLM.from_pretrained(base_id, dtype=dtype)
+        model = PeftModel.from_pretrained(base, str(p), dtype=dtype)
+        # merge so downstream code sees an ordinary causal LM
+        model = model.merge_and_unload()
+        tok_src = str(p) if (p / "tokenizer_config.json").exists() else base_id
+    else:
+        model = AutoModelForCausalLM.from_pretrained(path, dtype=dtype)
+        tok_src = path
+
+    model = model.to(device).eval()
+    tok = AutoTokenizer.from_pretrained(tok_src)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
     return model, tok, device
