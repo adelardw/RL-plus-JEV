@@ -75,6 +75,24 @@ def lift_resume_states() -> list[str]:
     return moved
 
 
+def quota_hours_left(api) -> float | None:
+    """Do not start a batch that the weekly GPU quota cannot finish."""
+    try:
+        from kagglesdk.kernels.services.kernels_api_service import (
+            ApiGetAcceleratorQuotaStatisticsRequest)
+
+        with api.build_kaggle_client() as k:
+            q = k.kernels.kernels_api_client.get_accelerator_quota_statistics(
+                ApiGetAcceleratorQuotaStatisticsRequest())
+        g = q.gpu_quota
+        import kaggle_run as _kr
+
+        return (_kr._sec(g.total_time_allowed) - _kr._sec(g.time_used)) / 3600
+    except Exception as e:  # noqa: BLE001
+        print("quota unavailable:", type(e).__name__, e, flush=True)
+        return None
+
+
 def session_outcome() -> dict:
     p = FETCH_DIR / "runner_state.json"
     if not p.exists():
@@ -107,6 +125,12 @@ def main() -> None:
                     help="the session already finished; just collect")
     ap.add_argument("--retry-failed", action="store_true", default=True)
     ap.add_argument("--no-retry-failed", dest="retry_failed", action="store_false")
+    ap.add_argument("--auto", action="store_true",
+                    help="start the next batch as well, and keep going until "
+                         "the plan is finished or the quota runs out")
+    ap.add_argument("--max-batches", type=int, default=6)
+    ap.add_argument("--min-quota-hours", type=float, default=0.5,
+                    help="do not start a batch with less GPU quota than this")
     args = ap.parse_args()
 
     import kaggle_run as kr
@@ -155,11 +179,25 @@ def main() -> None:
     out = plan_path.with_name(plan_path.stem + "_next.json")
     out.write_text(json.dumps(nxt, indent=1))
     print(f"\n{len(remaining)} job(s) still to run: {remaining}", flush=True)
-    sh("scripts/kaggle_run.py", "set-jobs", "--jobs", str(out))
-    print("\nNEXT: click 'Save & Run All' on "
-          f"https://www.kaggle.com/code/{kr._username()}/{kr.RUNNER_SLUG}", flush=True)
-    print("(a kernel push would drop the secret attachment, so this stays manual)",
-          flush=True)
+    out.write_text(json.dumps(nxt, indent=1))
+
+    if not args.auto:
+        sh("scripts/kaggle_run.py", "set-jobs", "--jobs", str(out))
+        print("\nNEXT: start the batch with "
+              "`python scripts/kaggle_run.py run`", flush=True)
+        return
+
+    left = quota_hours_left(api)
+    if left is not None and left < args.min_quota_hours:
+        print(f"\nGPU quota nearly exhausted ({left:.2f}h left); stopping here. "
+              f"The remaining jobs are already marked in {out.name}.", flush=True)
+        return
+
+    print(f"\nstarting the next batch automatically "
+          f"({left:.2f}h GPU quota left)" if left is not None else
+          "\nstarting the next batch automatically", flush=True)
+    shutil.copy2(out, plan_path)
+    kr.trigger(api)
 
 
 if __name__ == "__main__":

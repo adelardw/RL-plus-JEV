@@ -5,9 +5,10 @@ Every RL arm starts from this one checkpoint, so that differences downstream
 are attributable to the reward source and nothing else.
 """
 
+from __future__ import annotations
+
 import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
-from __future__ import annotations
 
 import argparse
 import json

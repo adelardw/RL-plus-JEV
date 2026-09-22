@@ -194,9 +194,32 @@ are skipped. A failed job is retried in the next batch by default.
 emits one line per event worth acting on (JOB / GUARD / ERROR / SPEND /
 STATUS), so a stuck job surfaces while the GPU quota can still be saved.
 
-### The one manual step
-Pushing a kernel version drops its Kaggle secret attachment, and the API has
-no field to set one (`ApiSaveKernelRequest` has none). So the runner kernel is
-pushed **once**, its work comes from `jobs/active.json` in the code dataset,
-and starting a batch is a click on "Save & Run All". Updating the dataset does
-not touch the kernel, so the attachment survives between batches.
+### Credentials, and why the study runs unattended
+
+Kaggle cannot attach a notebook secret over the API, and pushing a kernel
+version drops an attachment made in the UI (`ApiSaveKernelRequest` has no
+field for one) -- verified by pushing an unchanged kernel and watching
+`secret: loaded` become `secret: FAILED`. That makes a secret-based setup
+incompatible with unattended batches, because starting a run *is* a push.
+
+So the key is mounted instead, as a **private** Kaggle dataset
+(`scripts/kaggle_run.py push-secrets`). The runner prefers a notebook secret
+when one is attached and falls back to the mounted file, so both modes work.
+
+This is a real trade-off: the key now sits in Kaggle storage rather than in
+Kaggle's secret store. Two things keep it contained, and a third is worth
+doing:
+
+  * the dataset is created with `public=False`, and the uploader **verifies**
+    it afterwards -- it must appear private in the owned listing *and* be
+    absent from public search, or the command aborts and tells you to delete
+    it;
+  * the key is never printed, and the staging copy is deleted after upload;
+    `rljevf_secrets.json` is in `.gitignore`;
+  * use a **dedicated OpenRouter key with a spend cap** for this project, so
+    the blast radius of a mistake is bounded by that cap rather than by the
+    account balance.
+
+With the key mounted, `python scripts/kaggle_run.py run` starts a batch and
+`scripts/orchestrate.py --auto` chains batches until the plan finishes or the
+weekly GPU quota runs low. Nobody needs to click anything.

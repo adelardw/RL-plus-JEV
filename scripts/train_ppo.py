@@ -12,9 +12,10 @@ TD errors are in reward units and the quality of the calibration is visible
 rather than assumed.
 """
 
+from __future__ import annotations
+
 import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
-from __future__ import annotations
 
 import argparse
 import asyncio

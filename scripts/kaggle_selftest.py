@@ -2,9 +2,10 @@
 """Cheap pre-flight for a Kaggle session: proves the environment can do
 everything a real run needs before we spend GPU quota on it."""
 
+from __future__ import annotations
+
 import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
-from __future__ import annotations
 
 import json
 import os
@@ -48,6 +49,10 @@ def _():
 
 @check("api_key")
 def _():
+    # importing the package loads a local .env; on Kaggle the runner has
+    # already put the secret in the environment
+    import rljevf  # noqa: F401
+
     k = os.environ.get("OPEN_ROUTER_API_KEY", "")
     if not k:
         raise RuntimeError("OPEN_ROUTER_API_KEY missing")

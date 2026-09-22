@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 """Phase 1 -- GRPO, where the reward source is the only thing that varies."""
 
+from __future__ import annotations
+
 import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
-from __future__ import annotations
 
 import argparse
 import json

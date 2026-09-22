@@ -11,9 +11,10 @@ This also fixes the RLAIF judge size honestly -- we pick the smallest judge that
 is actually competent, and report the curve rather than asserting a choice.
 """
 
+from __future__ import annotations
+
 import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
-from __future__ import annotations
 
 import argparse
 import asyncio

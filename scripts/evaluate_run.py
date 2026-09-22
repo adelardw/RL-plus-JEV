@@ -7,9 +7,10 @@ built later without re-sampling -- sampling twice would add noise that has
 nothing to do with the arms being compared.
 """
 
+from __future__ import annotations
+
 import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
-from __future__ import annotations
 
 import argparse
 import json

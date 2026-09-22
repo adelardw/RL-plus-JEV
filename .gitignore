@@ -20,3 +20,5 @@ MEMORY.md
 runs/
 .kaggle_staging/
 *.safetensors
+rljevf_secrets.json
+state/**/resume_state/
