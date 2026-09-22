@@ -38,6 +38,28 @@ from rljevf.rubric import GENERAL_RUBRIC, build_state
 from rljevf.guardrails import require_experiment_host
 
 
+def step_signal(curves: Sequence[Sequence[float]]) -> dict:
+    """How much the value moves between neighbouring probes.
+
+    This is the quantity a critic supplies to PPO: a temporal-difference error
+    is V(s_{t+1}) - V(s_t), so a curve that never moves gives the optimiser
+    nothing to assign credit with, however well it separates outcomes at the
+    end. Reported separately for the interior of the response, where credit
+    assignment actually has to happen.
+    """
+    steps = [abs(c[j + 1] - c[j]) for c in curves for j in range(len(c) - 1)]
+    interior = [abs(c[j + 1] - c[j]) for c in curves
+                for j in range(1, max(1, len(c) - 2))]
+    if not steps:
+        return {}
+    return {
+        "mean_step": sum(steps) / len(steps),
+        "mean_step_interior": sum(interior) / len(interior) if interior else 0.0,
+        "flat_fraction": sum(1 for x in steps if x < 0.01) / len(steps),
+        "n_steps": len(steps),
+    }
+
+
 def calibration_spread(probs: Sequence[float]) -> dict:
     """How much of [0,1] a critic actually uses.
 
@@ -89,9 +111,14 @@ async def run_critic(prompts, comps, fracs, critic, rewards, labels) -> dict:
         prefixes = [" ".join(c.split()[: max(0, int(len(c.split()) * f))]) for c in comps]
         by_frac[f] = await critic.aprefix_probs_batch(list(prompts), prefixes)
     cal = fit_calibration(by_frac[1.0], rewards)
+    curves = [[by_frac[f][i] for f in fracs] for i in range(len(rewards))]
     return {
         "calibration_at_full": cal.to_dict(),
         "spread_at_full": calibration_spread(by_frac[1.0]),
+        "step_signal": step_signal(curves),
+        # keep the per-completion values: the aggregates cannot answer
+        # questions asked later, and re-running costs a GPU session
+        "raw_by_fraction": {f"{f:.2f}": by_frac[f] for f in fracs},
         "by_fraction": {
             f"{f:.2f}": {
                 "mean_value": sum(by_frac[f]) / len(by_frac[f]),
