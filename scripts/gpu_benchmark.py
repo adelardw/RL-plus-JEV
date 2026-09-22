@@ -62,7 +62,7 @@ def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm):
             "completions_per_step": gen_bs, "use_vllm": use_vllm}
 
 
-def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs):
+def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs, forward_chunk=2):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from rljevf.data import filter_by_prompt_tokens, rl_prompts
@@ -83,8 +83,8 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs):
         return [float(len(c)) / 1000 for c in completions]
 
     args = PPOArgs(max_steps=steps, batch_prompts=prompts, micro_batch_size=micro_bs,
-                   generation_batch_size=gen_bs, max_completion_length=max_new,
-                   save_every=0, log_every=1)
+                   generation_batch_size=gen_bs, forward_chunk=forward_chunk,
+                   max_completion_length=max_new, save_every=0, log_every=1)
     tr = PPOTrainer(policy=policy, ref_policy=ref, tokenizer=tok, reward_fn=rew,
                     critic=critic, args=args, train_dataset=ds, out_dir=Path("/tmp/bench_ppo"))
     t = time.perf_counter()
@@ -102,10 +102,11 @@ def main() -> None:
     ap.add_argument("--steps", type=int, default=5)
     ap.add_argument("--grpo-prompts", type=int, default=16)
     ap.add_argument("--grpo-g", type=int, default=8)
-    ap.add_argument("--ppo-prompts", type=int, default=64)
+    ap.add_argument("--ppo-prompts", type=int, default=16)
     ap.add_argument("--max-new", type=int, default=384)
     ap.add_argument("--micro-bs", type=int, default=8)
-    ap.add_argument("--gen-bs", type=int, default=16)
+    ap.add_argument("--gen-bs", type=int, default=8)
+    ap.add_argument("--forward-chunk", type=int, default=2)
     ap.add_argument("--skip-vllm", action="store_true")
     ap.add_argument("--skip-ppo", action="store_true")
     ap.add_argument("--out", default="/kaggle/working/results/gpu_benchmark.json")
@@ -128,7 +129,8 @@ def main() -> None:
     if not args.skip_ppo:
         try:
             res["ppo"] = bench_ppo(args.model, args.steps, args.ppo_prompts,
-                                   args.max_new, args.micro_bs, args.gen_bs)
+                                   args.max_new, min(args.micro_bs, 2), args.gen_bs,
+                                   args.forward_chunk)
             print("ppo", res["ppo"], flush=True)
         except Exception as e:  # noqa: BLE001
             res["ppo"] = {"error": f"{type(e).__name__}: {e}"}

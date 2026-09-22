@@ -19,6 +19,12 @@ kaggle.json
 CLAUDE.md
 RULES.md
 MEMORY.md
+artifacts
+jobs
+state
+main.py
+kaggle
+rl_*
 # Experiment artefacts: model weights and staging copies, not source
 runs/
 .kaggle_staging/

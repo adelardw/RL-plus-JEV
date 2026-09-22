@@ -89,50 +89,47 @@ def main() -> None:
         ref = f"{user}/rljevf-runner"
 
     t0 = time.time()
-    seen = 0
-    last_status = None
     print(f"STATUS watching {ref}", flush=True)
 
+    # kernels_logs_stream is a live tail: it blocks and yields chunks as the
+    # session produces them, and does not end until the session does. Consume
+    # it incrementally rather than collecting it, which is what made an earlier
+    # version appear to hang.
+    emitted = 0
+    # The stream restarts from the beginning after a dropped connection, so
+    # track how far we got and re-emit nothing.
+    last_t = -1.0
     while time.time() - t0 < args.max_seconds:
         st = status_of(api, ref)
-        if st != last_status:
-            print(f"STATUS {st}", flush=True)
-            last_status = st
+        print(f"STATUS {st}", flush=True)
+        terminal = any(k in str(st).upper() for k in TERMINAL)
 
-        # Pull the log and emit only what is new since the last pass. The
-        # stream endpoint is not available for every session state, so fall
-        # back to the whole-log fetch and de-duplicate by line count.
-        lines: list[str] = []
         try:
             for chunk in api.kernels_logs_stream(ref):
-                data = chunk.get("data") if isinstance(chunk, dict) else str(chunk)
-                if data:
-                    lines.extend(data.splitlines())
-        except Exception:  # noqa: BLE001
-            try:
-                raw = api.kernels_logs(ref)
-                try:
-                    entries = json.loads(raw)
-                    lines = [e.get("data", "") for e in entries]
-                except (json.JSONDecodeError, TypeError):
-                    lines = str(raw).splitlines()
-            except Exception:  # noqa: BLE001
-                lines = []
+                data = chunk.get("data", "") if isinstance(chunk, dict) else str(chunk)
+                when = float(chunk.get("time", 0) if isinstance(chunk, dict) else 0)
+                if when <= last_t:
+                    continue
+                last_t = when
+                for ln in str(data).rstrip("\n").splitlines():
+                    emitted += 1
+                    if args.all:
+                        print(f"{when/60:6.1f}m {ln}"[:400], flush=True)
+                    else:
+                        hit = classify(ln)
+                        if hit:
+                            print(f"{hit[0]} [{when/60:.0f}m] {hit[1][:360]}", flush=True)
+                if time.time() - t0 > args.max_seconds:
+                    break
+        except Exception as e:  # noqa: BLE001
+            print(f"STATUS stream-ended ({type(e).__name__})", flush=True)
 
-        flat: list[str] = []
-        for ln in lines:
-            flat.extend(str(ln).splitlines() or [""])
-        for ln in flat[seen:]:
-            if args.all:
-                print(ln.rstrip(), flush=True)
-            else:
-                hit = classify(ln)
-                if hit:
-                    print(f"{hit[0]} {hit[1][:400]}", flush=True)
-        seen = max(seen, len(flat))
-
-        if any(k in (last_status or "").upper() for k in TERMINAL):
-            print(f"STATUS terminal={last_status} after {(time.time()-t0)/60:.1f} min", flush=True)
+        st = status_of(api, ref)
+        if any(k in str(st).upper() for k in TERMINAL):
+            print(f"STATUS terminal={st} after {(time.time()-t0)/60:.1f} min "
+                  f"({emitted} log lines)", flush=True)
+            return
+        if terminal:
             return
         time.sleep(args.poll)
 

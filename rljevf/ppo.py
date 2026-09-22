@@ -41,13 +41,27 @@ def masked_whiten(x: torch.Tensor, mask: torch.Tensor, shift_mean: bool = True) 
 
 
 def logprobs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    logp = F.log_softmax(logits.float(), dim=-1)
-    return torch.gather(logp, 2, labels.unsqueeze(-1)).squeeze(-1)
+    """log p(label) computed as z_label - logsumexp(z).
+
+    The obvious `log_softmax(...).gather(...)` allocates a second tensor the
+    size of the logits, which for a 150k vocabulary is gigabytes per batch and
+    was enough on its own to OOM a 16GB card.
+    """
+    logits = logits.float()
+    chosen = torch.gather(logits, 2, labels.unsqueeze(-1)).squeeze(-1)
+    return chosen - torch.logsumexp(logits, dim=-1)
 
 
-def entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
-    p = F.softmax(logits.float(), dim=-1)
-    return -(p * torch.log(p.clamp_min(1e-12))).sum(-1)
+def entropy_from_logits(logits: torch.Tensor, chunk: int = 64) -> torch.Tensor:
+    """Entropy over the vocabulary, chunked along time so peak memory stays
+    proportional to `chunk` rather than to the full sequence."""
+    outs = []
+    for i in range(0, logits.shape[1], chunk):
+        z = logits[:, i : i + chunk, :].float()
+        lse = torch.logsumexp(z, dim=-1, keepdim=True)
+        p = torch.exp(z - lse)
+        outs.append((lse.squeeze(-1) - (p * z).sum(-1)))
+    return torch.cat(outs, dim=1)
 
 
 # --------------------------------------------------------------------------- #
@@ -63,6 +77,7 @@ class PPOArgs:
     vf_coef: float = 0.5
     ppo_epochs: int = 2
     generation_batch_size: int = 8  # rollout chunk that fits in VRAM
+    forward_chunk: int = 4          # no-grad scoring chunk (logits are B x T x |V|)
     batch_prompts: int = 16      # rollout prompts per optimisation step
     micro_batch_size: int = 4   # backward-pass chunk
     max_grad_norm: float = 1.0
@@ -195,6 +210,28 @@ class PPOTrainer:
 
     # -- one optimisation step ----------------------------------------------
     def step(self, prompts: list[str]) -> dict[str, Any]:
+        """Retry once at half the chunk sizes if the card runs out of memory.
+
+        VRAM headroom depends on the sampled completion lengths, so a batch
+        that fit for 200 steps can still OOM at step 201. Shrinking and
+        continuing is far better than losing the run."""
+        for attempt in range(3):
+            try:
+                return self._step(prompts)
+            except torch.cuda.OutOfMemoryError:
+                if attempt == 2:
+                    raise
+                torch.cuda.empty_cache()
+                self.args.forward_chunk = max(1, self.args.forward_chunk // 2)
+                self.args.micro_batch_size = max(1, self.args.micro_batch_size // 2)
+                self.args.generation_batch_size = max(1, self.args.generation_batch_size // 2)
+                print(f"CUDA OOM: retrying with forward_chunk="
+                      f"{self.args.forward_chunk}, micro_batch_size="
+                      f"{self.args.micro_batch_size}, generation_batch_size="
+                      f"{self.args.generation_batch_size}", flush=True)
+        raise RuntimeError("unreachable")
+
+    def _step(self, prompts: list[str]) -> dict[str, Any]:
         t0 = time.perf_counter()
         a = self.args
         q_ids, q_mask, r_ids, r_mask, lengths = self.generate(prompts)
@@ -203,8 +240,8 @@ class PPOTrainer:
         )
 
         with torch.no_grad():
-            old_logp, _ = self._forward_logprobs(self.policy, q_ids, q_mask, r_ids, r_mask)
-            ref_logp, _ = self._forward_logprobs(self.ref, q_ids, q_mask, r_ids, r_mask)
+            old_logp = self._logprobs_chunked(self.policy, q_ids, q_mask, r_ids, r_mask)
+            ref_logp = self._logprobs_chunked(self.ref, q_ids, q_mask, r_ids, r_mask)
 
         t_rew = time.perf_counter()
         scores = torch.tensor(
@@ -232,7 +269,7 @@ class PPOTrainer:
             values = values.to(self.device) * r_mask
         else:
             with torch.no_grad():
-                values = self._critic_values(q_ids, q_mask, r_ids, r_mask) * r_mask
+                values = self._critic_values_chunked(q_ids, q_mask, r_ids, r_mask) * r_mask
         value_time = time.perf_counter() - t_val
 
         advantages, returns = self._gae(rewards, values, r_mask, lengths)
@@ -298,6 +335,27 @@ class PPOTrainer:
             **diag,
         }
         return rec
+
+    @torch.no_grad()
+    def _logprobs_chunked(self, model, q_ids, q_mask, r_ids, r_mask, chunk=None):
+        chunk = chunk or max(1, self.args.forward_chunk)
+        outs = []
+        for i in range(0, q_ids.shape[0], chunk):
+            sl = slice(i, i + chunk)
+            lp, _ = self._forward_logprobs(model, q_ids[sl], q_mask[sl],
+                                           r_ids[sl], r_mask[sl])
+            outs.append(lp)
+            del _
+        return torch.cat(outs, dim=0)
+
+    @torch.no_grad()
+    def _critic_values_chunked(self, q_ids, q_mask, r_ids, r_mask, chunk=None):
+        chunk = chunk or max(1, self.args.forward_chunk)
+        outs = []
+        for i in range(0, q_ids.shape[0], chunk):
+            sl = slice(i, i + chunk)
+            outs.append(self._critic_values(q_ids[sl], q_mask[sl], r_ids[sl], r_mask[sl]))
+        return torch.cat(outs, dim=0)
 
     def _critic_values(self, q_ids, q_mask, r_ids, r_mask) -> torch.Tensor:
         ids = torch.cat([q_ids, r_ids], dim=1)
