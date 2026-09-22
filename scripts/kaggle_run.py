@@ -239,6 +239,24 @@ sys.exit(1 if state["failed"] else 0)
 '''
 
 
+def retrying(fn, *a, tries: int = 5, base: float = 3.0, what: str = "kaggle call", **kw):
+    """Kaggle's API drops TLS connections often enough that an un-retried call
+    is a liability in a long orchestration loop."""
+    last = None
+    for i in range(tries):
+        try:
+            return fn(*a, **kw)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if i == tries - 1:
+                break
+            wait = min(45.0, base * (2 ** i))
+            print(f"  {what}: {type(e).__name__}, retry {i+1}/{tries-1} in {wait:.0f}s",
+                  flush=True)
+            time.sleep(wait)
+    raise last
+
+
 def preflight() -> None:
     """Refuse to ship code that cannot even be compiled.
 
@@ -394,7 +412,7 @@ def push_runner(api, gpu: bool, quiet: bool = False) -> str:
         "competition_sources": [],
         "kernel_sources": [], "model_sources": [],
     }, indent=1))
-    api.kernels_push(str(kdir))
+    retrying(api.kernels_push, str(kdir), what="kernels_push")
     print(f"pushed kernel {ref} -- run started")
     if quiet:
         return ref
@@ -421,9 +439,15 @@ def wait_for(api, poll: float = 60, timeout_s: float = 12 * 3600) -> str:
     t0 = time.time()
     last = None
     while time.time() - t0 < timeout_s:
-        st = api.kernels_status(ref)
-        s = getattr(st, "status", None)
-        s = getattr(s, "name", str(s))
+        try:
+            st = retrying(api.kernels_status, ref, tries=4, what="kernels_status")
+            s = getattr(st, "status", None)
+            s = getattr(s, "name", str(s))
+        except Exception as e:  # noqa: BLE001
+            # a transient outage must not end the watch
+            print(f"  status unavailable ({type(e).__name__}); continuing", flush=True)
+            time.sleep(poll)
+            continue
         if s != last:
             print(f"[{(time.time()-t0)/60:6.1f}m] {s}", flush=True)
             last = s
@@ -449,7 +473,7 @@ def set_jobs(api, jobs_file: Path) -> None:
 
 def status(api) -> None:
     ref = f"{_username()}/{RUNNER_SLUG}"
-    st = api.kernels_status(ref)
+    st = retrying(api.kernels_status, ref, what="kernels_status")
     s = getattr(st, "status", None)
     print(ref, "->", getattr(s, "name", str(s)), getattr(st, "failure_message", "") or "")
     try:
@@ -490,7 +514,7 @@ def logs(api) -> None:
     import tempfile
     ref = f"{_username()}/{RUNNER_SLUG}"
     d = tempfile.mkdtemp()
-    api.kernels_output(ref, d)
+    retrying(api.kernels_output, ref, d, what="kernels_output")
     for f in Path(d).rglob("*.log"):
         for e in json.loads(f.read_text()):
             print(e["data"], end="")
@@ -498,7 +522,8 @@ def logs(api) -> None:
 
 def fetch(api, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    api.kernels_output(f"{_username()}/{RUNNER_SLUG}", str(dest))
+    retrying(api.kernels_output, f"{_username()}/{RUNNER_SLUG}", str(dest),
+             what="kernels_output")
     print(f"downloaded -> {dest}")
 
 

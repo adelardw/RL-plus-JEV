@@ -1,0 +1,85 @@
+{
+ "name": "study-session1",
+ "budget_usd": 25.0,
+ "session_seconds": 37800,
+ "reserve_seconds": 1200,
+ "pip": [
+  "trl==1.13.0",
+  "transformers==5.17.0",
+  "datasets==5.0.1",
+  "httpx"
+ ],
+ "done": [],
+ "jobs": [
+  {
+   "name": "r0-sft-s0",
+   "command": "scripts/guard.py --name r0-sft-s0 --timeout 4320 --silence-timeout 1800 --heartbeat 180 -- scripts/train_sft.py --seed 0 --out /kaggle/working/runs/R0-sft",
+   "est_seconds": 2400,
+   "needs_api": false,
+   "why": "shared start point for every arm"
+  },
+  {
+   "name": "r1-bert-s0",
+   "command": "scripts/guard.py --name r1-bert-s0 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R1-bert --reward bert_rm --sft /kaggle/working/runs/R0-sft --seed 0 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "DeBERTa Bradley-Terry RM, local"
+  },
+  {
+   "name": "r1-bert-s1",
+   "command": "scripts/guard.py --name r1-bert-s1 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R1-bert --reward bert_rm --sft /kaggle/working/runs/R0-sft --seed 1 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "DeBERTa Bradley-Terry RM, local"
+  },
+  {
+   "name": "r1-bert-s2",
+   "command": "scripts/guard.py --name r1-bert-s2 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R1-bert --reward bert_rm --sft /kaggle/working/runs/R0-sft --seed 2 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "DeBERTa Bradley-Terry RM, local"
+  },
+  {
+   "name": "r2-self-s0",
+   "command": "scripts/guard.py --name r2-self-s0 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R2-self --reward self_judge --sft /kaggle/working/runs/R0-sft --seed 0 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "frozen SFT copy judges itself, local"
+  },
+  {
+   "name": "r2-self-s1",
+   "command": "scripts/guard.py --name r2-self-s1 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R2-self --reward self_judge --sft /kaggle/working/runs/R0-sft --seed 1 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "frozen SFT copy judges itself, local"
+  },
+  {
+   "name": "r2-self-s2",
+   "command": "scripts/guard.py --name r2-self-s2 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R2-self --reward self_judge --sft /kaggle/working/runs/R0-sft --seed 2 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "frozen SFT copy judges itself, local"
+  },
+  {
+   "name": "r3-rlaif-s0",
+   "command": "scripts/guard.py --name r3-rlaif-s0 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R3-rlaif --reward llm_judge --sft /kaggle/working/runs/R0-sft --seed 0 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "Qwen2.5-1.5B judge read from logits, local"
+  },
+  {
+   "name": "r3-rlaif-s1",
+   "command": "scripts/guard.py --name r3-rlaif-s1 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R3-rlaif --reward llm_judge --sft /kaggle/working/runs/R0-sft --seed 1 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "Qwen2.5-1.5B judge read from logits, local"
+  },
+  {
+   "name": "r3-rlaif-s2",
+   "command": "scripts/guard.py --name r3-rlaif-s2 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R3-rlaif --reward llm_judge --sft /kaggle/working/runs/R0-sft --seed 2 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "Qwen2.5-1.5B judge read from logits, local"
+  }
+ ]
+}

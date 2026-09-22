@@ -1,0 +1,71 @@
+{
+ "name": "study-session2",
+ "budget_usd": 25.0,
+ "session_seconds": 37800,
+ "reserve_seconds": 1200,
+ "pip": [
+  "trl==1.13.0",
+  "transformers==5.17.0",
+  "datasets==5.0.1",
+  "httpx"
+ ],
+ "done": [],
+ "jobs": [
+  {
+   "name": "r4-jev-s0",
+   "command": "scripts/guard.py --name r4-jev-s0 --timeout 7288 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R4-jev --reward jev --sft /kaggle/working/runs/R0-sft --seed 0 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 4049,
+   "needs_api": true,
+   "why": "Jev as reward function"
+  },
+  {
+   "name": "r4-jev-s1",
+   "command": "scripts/guard.py --name r4-jev-s1 --timeout 7288 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R4-jev --reward jev --sft /kaggle/working/runs/R0-sft --seed 1 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 4049,
+   "needs_api": true,
+   "why": "Jev as reward function"
+  },
+  {
+   "name": "r4-jev-s2",
+   "command": "scripts/guard.py --name r4-jev-s2 --timeout 7288 --silence-timeout 1800 --heartbeat 180 -- scripts/train_grpo.py --run-id R4-jev --reward jev --sft /kaggle/working/runs/R0-sft --seed 2 --steps 250 --num-generations 8 --prompts-per-step 16 --micro-bs 8 --max-completion-length 384",
+   "est_seconds": 4049,
+   "needs_api": true,
+   "why": "Jev as reward function"
+  },
+  {
+   "name": "r5-ppo-learned-s0",
+   "command": "scripts/guard.py --name r5-ppo-learned-s0 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_ppo.py --run-id R5-ppo-learned --reward jev --critic learned --sft /kaggle/working/runs/R0-sft --seed 0 --steps 150 --batch-prompts 64 --gen-bs 8 --micro-bs 4 --max-completion-length 384 --num-prefixes 6 --calibration-n 96",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "textbook PPO: learned value head, Jev reward"
+  },
+  {
+   "name": "r5-ppo-learned-s1",
+   "command": "scripts/guard.py --name r5-ppo-learned-s1 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_ppo.py --run-id R5-ppo-learned --reward jev --critic learned --sft /kaggle/working/runs/R0-sft --seed 1 --steps 150 --batch-prompts 64 --gen-bs 8 --micro-bs 4 --max-completion-length 384 --num-prefixes 6 --calibration-n 96",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "textbook PPO: learned value head, Jev reward"
+  },
+  {
+   "name": "r5-ppo-learned-s2",
+   "command": "scripts/guard.py --name r5-ppo-learned-s2 --timeout 6480 --silence-timeout 1800 --heartbeat 180 -- scripts/train_ppo.py --run-id R5-ppo-learned --reward jev --critic learned --sft /kaggle/working/runs/R0-sft --seed 2 --steps 150 --batch-prompts 64 --gen-bs 8 --micro-bs 4 --max-completion-length 384 --num-prefixes 6 --calibration-n 96",
+   "est_seconds": 3600,
+   "needs_api": false,
+   "why": "textbook PPO: learned value head, Jev reward"
+  },
+  {
+   "name": "r6-ppo-jevcritic-s0",
+   "command": "scripts/guard.py --name r6-ppo-jevcritic-s0 --timeout 8370 --silence-timeout 1800 --heartbeat 180 -- scripts/train_ppo.py --run-id R6-ppo-jevcritic --reward jev --critic jev --sft /kaggle/working/runs/R0-sft --seed 0 --steps 150 --batch-prompts 64 --gen-bs 8 --micro-bs 4 --max-completion-length 384 --num-prefixes 6 --calibration-n 96",
+   "est_seconds": 4650,
+   "needs_api": true,
+   "why": "no value network: Jev values prefixes"
+  },
+  {
+   "name": "r6-ppo-jevcritic-s1",
+   "command": "scripts/guard.py --name r6-ppo-jevcritic-s1 --timeout 8370 --silence-timeout 1800 --heartbeat 180 -- scripts/train_ppo.py --run-id R6-ppo-jevcritic --reward jev --critic jev --sft /kaggle/working/runs/R0-sft --seed 1 --steps 150 --batch-prompts 64 --gen-bs 8 --micro-bs 4 --max-completion-length 384 --num-prefixes 6 --calibration-n 96",
+   "est_seconds": 4650,
+   "needs_api": true,
+   "why": "no value network: Jev values prefixes"
+  }
+ ]
+}

@@ -76,6 +76,45 @@ Property & Value \\\\
 \\end{{table}}""")
 
 
+
+def t_judge_benchmark() -> None:
+    d = load("judge_benchmark.json")
+    if d is None:
+        write("judge_benchmark.tex",
+              placeholder("Reward-source agreement with human preferences.", "tab:judges"))
+        return
+    order = sorted(d["sources"].items(),
+                   key=lambda kv: -(kv[1].get("accuracy") or 0))
+    rows = []
+    for name, v in order:
+        if "accuracy" not in v:
+            continue
+        label = (name.replace("llm_judge:", "LLM judge ")
+                     .replace("bert_rm", "BERT RM (DeBERTa BT)")
+                     .replace("jev", "\\jev{}")
+                     .replace("_", "\\_"))
+        rows.append(f"{label} & {100*v['accuracy']:.1f} & {v['cohens_d']:+.2f} & "
+                    f"{v['mean_margin']:+.3f} & {v['wall_s']:.0f} \\\\")
+    body = "\n".join(rows)
+    write("judge_benchmark.tex", f"""\\begin{{table}}[t]\\centering\\small
+\\caption{{How well each reward source recognises a human preference, measured
+before any RL. Each source scores the chosen and the rejected response of
+$n={d['n']}$ held-out UltraFeedback pairs; accuracy is how often it ranks the
+chosen one higher, and Cohen's $d$ is the separation in units of the margin's
+own standard deviation. A source that cannot do this will not teach a policy
+anything, so this is what fixes the RLAIF judge size rather than an assumption.
+Wall-clock is for all $2n$ scorings on the same hardware.}}
+\\label{{tab:judges}}
+\\begin{{tabular}}{{lcccc}}
+\\toprule
+Reward source & Accuracy (\\%) & Cohen's $d$ & Mean margin & Wall-clock (s) \\\\
+\\midrule
+{body}
+\\bottomrule
+\\end{{tabular}}
+\\end{{table}}""")
+
+
 def t_calibration() -> None:
     d = load("calibration_study.json")
     if d is None:
@@ -288,8 +327,8 @@ Arm & Reward calls & USD & p50 (s) & p95 (s) & GPU-h \\\\
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.parse_args()
-    for f in (t_jev_properties, t_calibration, t_setup, t_grpo, t_ppo,
-              t_cross, t_sg2jev, t_cost):
+    for f in (t_jev_properties, t_judge_benchmark, t_calibration, t_setup,
+              t_grpo, t_ppo, t_cross, t_sg2jev, t_cost):
         f()
 
 

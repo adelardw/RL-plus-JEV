@@ -291,6 +291,14 @@ over-optimisation index.
 
 \section{Results}
 
+\subsection{Can each reward source recognise a human preference at all?}
+\label{sec:res-judges}
+A comparison is only informative if every arm's judge works. Table~\ref{tab:judges}
+measures each source on held-out preference pairs before any RL, which is what
+fixes the RLAIF judge size; running that arm with a judge at chance would be a
+straw man rather than a baseline.
+\input{tables/judge_benchmark.tex}
+
 \subsection{Is \jev{}'s prefix probability a value function?}
 \label{sec:res-calibration}
 \input{tables/calibration.tex}

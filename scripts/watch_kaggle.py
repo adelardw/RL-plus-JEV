@@ -58,13 +58,19 @@ def classify(line: str) -> tuple[str, str] | None:
     return None
 
 
-def status_of(api, ref: str) -> str:
-    try:
-        st = api.kernels_status(ref)
-        s = getattr(st, "status", None)
-        return getattr(s, "name", str(s))
-    except Exception as e:  # noqa: BLE001
-        return f"POLL-ERROR:{type(e).__name__}"
+def status_of(api, ref: str, tries: int = 3) -> str:
+    """Transient TLS drops from api.kaggle.com are common; a single failure
+    must not be reported as a state change."""
+    last = "?"
+    for i in range(tries):
+        try:
+            st = api.kernels_status(ref)
+            s = getattr(st, "status", None)
+            return getattr(s, "name", str(s))
+        except Exception as e:  # noqa: BLE001
+            last = f"POLL-ERROR:{type(e).__name__}"
+            time.sleep(2 * (i + 1))
+    return last
 
 
 def main() -> None:
