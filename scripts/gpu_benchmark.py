@@ -22,7 +22,8 @@ import torch
 from rljevf.config import supports_bf16
 
 
-def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm):
+def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm,
+               optim="adamw_torch"):
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import GRPOConfig, GRPOTrainer
 
@@ -47,7 +48,7 @@ def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm):
         max_completion_length=max_new, logging_steps=1, save_strategy="no",
         gradient_checkpointing=torch.cuda.is_available(), report_to=[],
         bf16=bf16, fp16=torch.cuda.is_available() and not bf16,
-        use_vllm=use_vllm, temperature=1.0, top_p=1.0,
+        use_vllm=use_vllm, temperature=1.0, top_p=1.0, optim=optim,
     )
     t = time.perf_counter()
     tr = GRPOTrainer(model=model, reward_funcs=rew, args=cfg,
@@ -59,7 +60,7 @@ def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm):
     peak = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0
     return {"build_s": round(build, 1), "total_s": round(total, 1),
             "s_per_step": round(total / steps, 2), "peak_vram_gb": round(peak, 2),
-            "completions_per_step": gen_bs, "use_vllm": use_vllm}
+            "completions_per_step": gen_bs, "use_vllm": use_vllm, "optim": optim}
 
 
 def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs, forward_chunk=2):
@@ -137,23 +138,26 @@ def main() -> None:
     ap.add_argument("--forward-chunk", type=int, default=2)
     ap.add_argument("--skip-vllm", action="store_true")
     ap.add_argument("--skip-ppo", action="store_true")
+    ap.add_argument("--optims", default="adamw_torch,adafactor",
+                    help="optimisers to try, cheapest state last")
     ap.add_argument("--out", default="/kaggle/working/results/gpu_benchmark.json")
     args = ap.parse_args()
 
     res = {"model": args.model, "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"}
 
-    sizes = [s for s in (args.micro_bs, 8, 4, 2, 1) if s <= args.micro_bs]
-    sizes = sorted(set(sizes), reverse=True)
-    for vllm in ([False] if args.skip_vllm else [False, True]):
-        key = f"grpo_vllm={vllm}"
-        res[key] = autofit(
-            lambda micro_bs, **kw: bench_grpo(
-                args.model, args.steps, args.grpo_prompts, args.grpo_g,
-                args.max_new, micro_bs, vllm),
-            key, sizes)
-        print(key, res[key], flush=True)
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
+    sizes = sorted({s for s in (args.micro_bs, 8, 4, 2, 1) if s <= args.micro_bs},
+                   reverse=True)
+    for optim in [o for o in args.optims.split(",") if o]:
+        for vllm in ([False] if args.skip_vllm else [False, True]):
+            key = f"grpo_vllm={vllm}_optim={optim}"
+            res[key] = autofit(
+                lambda micro_bs, _o=optim, _v=vllm, **kw: bench_grpo(
+                    args.model, args.steps, args.grpo_prompts, args.grpo_g,
+                    args.max_new, micro_bs, _v, _o),
+                key, sizes)
+            print(key, res[key], flush=True)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
 
     if not args.skip_ppo:
         res["ppo"] = autofit(

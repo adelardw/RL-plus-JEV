@@ -223,3 +223,15 @@ doing:
 With the key mounted, `python scripts/kaggle_run.py run` starts a batch and
 `scripts/orchestrate.py --auto` chains batches until the plan finishes or the
 weekly GPU quota runs low. Nobody needs to click anything.
+
+## Where things stand
+
+`docs/RESEARCH_LOG.md` is the running record: every decision with its reason,
+every measurement with its sample size, and the traps that cost time (the
+Kaggle quota that reads as 6h but is 30h, secrets that a kernel push silently
+drops, `is_bf16_supported()` returning True on a T4 through emulation).
+
+Read that first. The short version: Experiments 0 and 1 have preliminary
+results that replicate, the analysis of the sparse-probe critic is done and its
+prediction confirmed (mean bias decays as K^-1.03 against a predicted K^-1),
+and no training run has happened yet.

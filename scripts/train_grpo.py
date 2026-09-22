@@ -32,6 +32,9 @@ def main() -> None:
     ap.add_argument("--num-generations", type=int, default=8)
     ap.add_argument("--prompts-per-step", type=int, default=16)
     ap.add_argument("--micro-bs", type=int, default=8)
+    ap.add_argument("--optim", default="adamw_torch",
+                    help="adamw_torch | adafactor | adamw_bnb_8bit -- the optimiser's\n"
+                         "state is 4GB of a T4 for a 0.5B model in fp32")
     ap.add_argument("--lr", type=float, default=1e-6)
     ap.add_argument("--beta", type=float, default=0.04)
     ap.add_argument("--max-completion-length", type=int, default=384)
@@ -94,6 +97,7 @@ def main() -> None:
         # gradient checkpointing segfaults on MPS (torch 2.14); it is only
         # needed for VRAM on the T4s anyway
         gradient_checkpointing=torch.cuda.is_available(),
+        optim=args.optim,
         log_completions=True,
         report_to=[] if args.report_to == "none" else [args.report_to],
     )
