@@ -25,6 +25,7 @@ state
 main.py
 kaggle
 rl_*
+docs
 # Experiment artefacts: model weights and staging copies, not source
 runs/
 .kaggle_staging/
