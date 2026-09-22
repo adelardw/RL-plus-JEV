@@ -228,6 +228,12 @@ class PPOTrainer:
             except torch.cuda.OutOfMemoryError:
                 if attempt == 2:
                     raise
+                # A traceback keeps the failed step's tensors alive, so
+                # without collecting first the retry would start with less
+                # memory than the attempt that just failed.
+                import gc
+
+                gc.collect()
                 torch.cuda.empty_cache()
                 self.args.forward_chunk = max(1, self.args.forward_chunk // 2)
                 self.args.micro_batch_size = max(1, self.args.micro_batch_size // 2)

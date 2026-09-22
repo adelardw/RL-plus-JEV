@@ -75,6 +75,7 @@ def bench_grpo(model_name, steps, G, max_new, use_vllm,
         tr.train()
     except torch.cuda.OutOfMemoryError:
         probe.mark("at OOM")
+        del tr, model
         raise
     total = time.perf_counter() - t
     probe.mark("after training")
@@ -122,7 +123,11 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs,
     tr = PPOTrainer(policy=policy, ref_policy=ref, tokenizer=tok, reward_fn=rew,
                     critic=critic, args=args, train_dataset=ds, out_dir=Path("/tmp/bench_ppo"))
     t = time.perf_counter()
-    hist = tr.train()
+    try:
+        hist = tr.train()
+    except torch.cuda.OutOfMemoryError:
+        del tr, policy, ref, critic
+        raise
     total = time.perf_counter() - t
     peak = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0
     return {"total_s": round(total, 1), "s_per_step": round(total / steps, 2),
@@ -185,19 +190,46 @@ def autofit(fn, label: str, configs: list[dict], **kw) -> dict:
             r["fit"] = True
             return r
         except torch.cuda.OutOfMemoryError as e:
-            print(f"  {label}: {cfg} OOM ({str(e)[:70]})", flush=True)
-            if torch.cuda.is_available():
-                print(f"    [vram] at failure: allocated "
-                      f"{torch.cuda.memory_allocated()/2**30:.2f} GB, reserved "
-                      f"{torch.cuda.memory_reserved()/2**30:.2f} GB, peak "
-                      f"{torch.cuda.max_memory_allocated()/2**30:.2f} GB", flush=True)
-                torch.cuda.empty_cache()
-                torch.cuda.reset_peak_memory_stats()
+            msg = str(e)[:70]
+            print(f"  {label}: {cfg} OOM ({msg})", flush=True)
+            _release(label)
         except Exception as e:  # noqa: BLE001
-            return {"error": f"{type(e).__name__}: {e}", **cfg, "fit": False}
+            err = f"{type(e).__name__}: {e}"
+            _release(label)
+            return {"error": err, **cfg, "fit": False}
     return {"error": "no configuration fitted", "fit": False,
             "tried": configs}
 
+
+def _release(label: str) -> None:
+    """Free the failed attempt before trying a smaller one.
+
+    `empty_cache()` releases cached blocks but not memory still referenced, and
+    a raised exception keeps every frame's locals alive through its traceback --
+    including the model. The bench functions therefore `del` their model and
+    trainer before re-raising; this collects what that leaves and reports
+    whether the card actually came back, because a search that silently
+    inherits its predecessor reports "does not fit at any size" when what it
+    measured was a leak. The symptom was PPO failing to allocate 18 MiB.
+    """
+    import gc
+
+    import torch
+
+    if not torch.cuda.is_available():
+        return
+    before = torch.cuda.memory_allocated() / 2**30
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    after = torch.cuda.memory_allocated() / 2**30
+    torch.cuda.reset_peak_memory_stats()
+    print(f"    [vram] released {before - after:.2f} GB, "
+          f"{after:.2f} GB still resident", flush=True)
+    if after > 0.5:
+        print(f"    [vram] WARNING: {after:.2f} GB did not free -- the next "
+              f"attempt starts handicapped and its result is not comparable",
+              flush=True)
 
 def main() -> None:
     ap = argparse.ArgumentParser()
