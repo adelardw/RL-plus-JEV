@@ -153,6 +153,40 @@ Prefix seen & $\\bar{{p}}$ (good) & $\\bar{{p}}$ (bad) & AUC & Spearman $\\rho$ 
           f"$R^2={fmt(cal['r2'],2)}$")
 
 
+
+def t_probe_density() -> None:
+    d = load("probe_density.json")
+    if d is None:
+        write("probe_density.tex",
+              placeholder("Interpolation error against the number of probes.", "tab:density"))
+        return
+    rows = []
+    for k in sorted(d["by_k"], key=int):
+        v = d["by_k"][k]
+        rows.append(f"{k} & {v['segments']} & {v['mean_abs_error']:.4f} & "
+                    f"{v['max_abs_error']:.4f} \\\\")
+    body = "\n".join(rows)
+    write("probe_density.tex", f"""\\begin{{table}}[t]\\centering\\small
+\\caption{{Bias of the sparsely-probed critic, measured against a densely
+probed value curve on $n={d['n_completions']}$ completions
+(every {d['stride_tokens']} tokens, {d['mean_dense_probes']:.0f} probes each).
+For each $K$ the sparse estimate is rebuilt from $K$ of the same probes, so the
+comparison isolates interpolation error from judge noise. The fitted decay is
+$K^{{{d['fitted_exponent_mean']:.2f}}}$ for the mean error and
+$K^{{{d['fitted_exponent_max']:.2f}}}$ for the worst case; by
+Proposition~\\ref{{prop:bias}} an exponent near $-1$ indicates a merely
+Lipschitz value curve and near $-2$ a curve with bounded curvature.}}
+\\label{{tab:density}}
+\\begin{{tabular}}{{cccc}}
+\\toprule
+$K$ probes & Segments & Mean $|\\hat V - V^\\ast|$ & Max $|\\hat V - V^\\ast|$ \\\\
+\\midrule
+{body}
+\\bottomrule
+\\end{{tabular}}
+\\end{{table}}""")
+
+
 def t_setup() -> None:
     d = load("setup.json")
     if d is None:
@@ -327,7 +361,7 @@ Arm & Reward calls & USD & p50 (s) & p95 (s) & GPU-h \\\\
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.parse_args()
-    for f in (t_jev_properties, t_judge_benchmark, t_calibration, t_setup,
+    for f in (t_jev_properties, t_judge_benchmark, t_calibration, t_probe_density, t_setup,
               t_grpo, t_ppo, t_cross, t_sg2jev, t_cost):
         f()
 

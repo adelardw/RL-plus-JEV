@@ -1,7 +1,7 @@
 \begin{table}[t]\centering\small
 \caption{\jev{}'s forward-looking probability on a \emph{partial} response,
 as a function of how much of the response it has seen, measured on
-$n=128$ completions sampled from the SFT policy. ``Good'' and ``bad'' are
+$n=256$ completions sampled from the SFT policy. ``Good'' and ``bad'' are
 the above- and below-median halves by \emph{final} rubric reward, which is not
 observable at the time of the query. AUC is the probability that the prefix
 value ranks an eventually-good response above an eventually-bad one; $R^2$ is
@@ -11,12 +11,12 @@ for the affine fit of final reward on prefix value.}
 \toprule
 Prefix seen & $\bar{p}$ (good) & $\bar{p}$ (bad) & AUC & Spearman $\rho$ & $R^2$ \\
 \midrule
-0\% & 0.541 & 0.493 & 0.657 & 0.268 & 0.049 \\
-10\% & 0.637 & 0.457 & 0.703 & 0.399 & 0.146 \\
-25\% & 0.586 & 0.347 & 0.761 & 0.515 & 0.245 \\
-50\% & 0.529 & 0.196 & 0.851 & 0.649 & 0.404 \\
-75\% & 0.485 & 0.150 & 0.872 & 0.719 & 0.492 \\
-100\% & 0.478 & 0.134 & 0.857 & 0.691 & 0.559 \\
+0\% & 0.539 & 0.506 & 0.608 & 0.222 & 0.029 \\
+10\% & 0.619 & 0.476 & 0.658 & 0.318 & 0.105 \\
+25\% & 0.574 & 0.347 & 0.754 & 0.487 & 0.207 \\
+50\% & 0.498 & 0.239 & 0.784 & 0.556 & 0.303 \\
+75\% & 0.453 & 0.184 & 0.793 & 0.593 & 0.374 \\
+100\% & 0.452 & 0.143 & 0.802 & 0.635 & 0.520 \\
 \bottomrule
 \end{tabular}
 \end{table}

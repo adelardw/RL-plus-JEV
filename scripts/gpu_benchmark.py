@@ -96,6 +96,34 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs, forward_chu
             "step_times": [h["step_time_s"] for h in hist]}
 
 
+def autofit(fn, label: str, sizes: list[int], **kw) -> dict:
+    """Find the largest micro-batch that actually fits, and time it there.
+
+    Guessing this wastes a Kaggle session per wrong guess: the study's real
+    settings OOMed on a T4 twice. Searching downward answers "what can we run"
+    in one job instead.
+    """
+    import torch
+
+    for mb in sizes:
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
+            print(f"  {label}: trying micro_bs={mb}", flush=True)
+            r = fn(micro_bs=mb, **kw)
+            r["micro_bs"] = mb
+            r["fit"] = True
+            return r
+        except torch.cuda.OutOfMemoryError as e:
+            print(f"  {label}: micro_bs={mb} OOM ({str(e)[:70]})", flush=True)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}", "micro_bs": mb, "fit": False}
+    return {"error": "no micro-batch size fitted", "fit": False}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
@@ -114,27 +142,26 @@ def main() -> None:
 
     res = {"model": args.model, "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"}
 
+    sizes = [s for s in (args.micro_bs, 8, 4, 2, 1) if s <= args.micro_bs]
+    sizes = sorted(set(sizes), reverse=True)
     for vllm in ([False] if args.skip_vllm else [False, True]):
         key = f"grpo_vllm={vllm}"
-        try:
-            res[key] = bench_grpo(args.model, args.steps, args.grpo_prompts, args.grpo_g,
-                                  args.max_new, args.micro_bs, vllm)
-            print(key, res[key], flush=True)
-        except Exception as e:  # noqa: BLE001
-            res[key] = {"error": f"{type(e).__name__}: {e}"}
-            print(key, "FAILED:", res[key]["error"][:300], flush=True)
+        res[key] = autofit(
+            lambda micro_bs, **kw: bench_grpo(
+                args.model, args.steps, args.grpo_prompts, args.grpo_g,
+                args.max_new, micro_bs, vllm),
+            key, sizes)
+        print(key, res[key], flush=True)
         if torch.cuda.is_available():
             torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
 
     if not args.skip_ppo:
-        try:
-            res["ppo"] = bench_ppo(args.model, args.steps, args.ppo_prompts,
-                                   args.max_new, min(args.micro_bs, 2), args.gen_bs,
-                                   args.forward_chunk)
-            print("ppo", res["ppo"], flush=True)
-        except Exception as e:  # noqa: BLE001
-            res["ppo"] = {"error": f"{type(e).__name__}: {e}"}
-            print("ppo FAILED:", res["ppo"]["error"][:300], flush=True)
+        res["ppo"] = autofit(
+            lambda micro_bs, **kw: bench_ppo(
+                args.model, args.steps, args.ppo_prompts, args.max_new,
+                micro_bs, args.gen_bs, min(args.forward_chunk, micro_bs)),
+            "ppo", [s for s in (4, 2, 1) if s <= args.micro_bs] or [1])
+        print("ppo", res["ppo"], flush=True)
 
     # what the weekly quota buys
     sched = {}

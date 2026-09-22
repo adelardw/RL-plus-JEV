@@ -9,6 +9,9 @@
 \usepackage{caption}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
+\usepackage{amsthm}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
 
 \newcommand{\jev}{\textsc{Jev}}
 \newcommand{\todo}[1]{\textcolor{red}{[#1]}}
@@ -287,6 +290,56 @@ and the KL shaping, is unchanged.}
 \end{algorithmic}
 \end{algorithm}
 
+\subsection{What sparse probing costs in principle}
+\label{sec:analysis}
+
+Probing $K$ positions and interpolating is an approximation, and it is worth
+saying exactly what it approximates and how badly, because that is what decides
+how to choose $K$ and what the resulting advantages mean.
+
+\begin{proposition}[Credit is assigned per segment, not per token]
+\label{prop:segments}
+Let $\hat V$ be affine on each interval between consecutive probes
+$t_k, t_{k+1}$, and let $\gamma = 1$. Then for $t_k \le t < t_{k+1} - 1$ the
+temporal-difference error is
+\[
+\delta_t \;=\; r_t + \hat V(s_{t+1}) - \hat V(s_t)
+\;=\; r_t + \frac{p_{t_{k+1}} - p_{t_k}}{t_{k+1} - t_k}\,a,
+\]
+which is constant in $t$ within the segment apart from the per-token shaping
+term $r_t$. Consequently the critic distinguishes credit only at the
+granularity of the $K-1$ segments.
+\end{proposition}
+
+This is a structural difference from a learned value head rather than an
+artefact of insufficient probing: no increase in per-probe accuracy makes the
+interpolated critic discriminate between two tokens inside one segment. It is
+also why $K$ is an experimental axis rather than an implementation detail.
+
+\begin{proposition}[Bias of the interpolated critic]
+\label{prop:bias}
+Write $V^\ast(t)$ for the true value at token index $t$ and $h = T/(K-1)$ for
+the probe spacing. If $V^\ast$ is $L$-Lipschitz in $t$, then
+\[
+\sup_t \big| \hat V_K(t) - V^\ast(t) \big| \;\le\; \tfrac{1}{2} L h
+\;=\; O\!\big(T/K\big).
+\]
+If in addition the second difference of $V^\ast$ is bounded by $M$, the bound
+tightens to $\tfrac{1}{8} M h^2 = O\!\big(T^2/K^2\big).$
+\end{proposition}
+
+Both are the standard linear-interpolation bounds; what is not standard is
+which regime a real value curve occupies, and that is an empirical question we
+answer in Section~\ref{sec:res-density} by probing every position on a small
+sample and measuring how the error actually decays with $K$.
+
+\begin{corollary}[The bias reaches the optimiser undiminished]
+\label{cor:adv}
+With $\gamma = \lambda = 1$ the generalised advantage telescopes to
+$A_t = R - \hat V(s_t)$, so the advantage error equals the value error
+pointwise and inherits the bounds of Proposition~\ref{prop:bias}.
+\end{corollary}
+
 \paragraph{Cost of the critic.} The arm spends $K$ extra \jev{} calls per
 completion. At the measured price this is a fraction of a cent per step and
 buys token-level credit assignment; the comparison in
@@ -372,6 +425,10 @@ straw man rather than a baseline.
 \subsection{Is \jev{}'s prefix probability a value function?}
 \label{sec:res-calibration}
 \input{tables/calibration.tex}
+
+\subsection{How fast does the sparse-probe bias vanish?}
+\label{sec:res-density}
+\input{tables/probe_density.tex}
 
 \subsection{GRPO: varying the reward source}
 \input{tables/grpo_main.tex}

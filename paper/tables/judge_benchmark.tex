@@ -1,4 +1,20 @@
-\begin{table}[t]\centering
-\caption{Reward-source agreement with human preferences.}\label{tab:judges}
-\textcolor{red}{[pending: run not yet complete]}
+\begin{table}[t]\centering\small
+\caption{How well each reward source recognises a human preference, measured
+before any RL. Each source scores the chosen and the rejected response of
+$n=300$ held-out UltraFeedback pairs; accuracy is how often it ranks the
+chosen one higher, and Cohen's $d$ is the separation in units of the margin's
+own standard deviation. A source that cannot do this will not teach a policy
+anything, so this is what fixes the RLAIF judge size rather than an assumption.
+Wall-clock is for all $2n$ scorings on the same hardware.}
+\label{tab:judges}
+\begin{tabular}{lcccc}
+\toprule
+Reward source & Accuracy (\%) & Cohen's $d$ & Mean margin & Wall-clock (s) \\
+\midrule
+\jev{} & 65.0 & +0.39 & +0.420 & 7 \\
+BERT RM (DeBERTa BT) & 59.7 & +0.19 & +0.332 & 85 \\
+LLM judge Qwen2.5-3B-Instruct & 57.7 & +0.25 & +0.173 & 975 \\
+LLM judge Qwen2.5-1.5B-Instruct & 50.7 & -0.07 & -0.029 & 486 \\
+\bottomrule
+\end{tabular}
 \end{table}
