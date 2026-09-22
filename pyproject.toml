@@ -9,6 +9,7 @@ dependencies = [
     "datasets>=5.0.1",
     "httpx>=0.28.1",
     "kaggle>=2.2.4",
+    "matplotlib>=3.11.2",
     "peft>=0.21.0",
     "python-dotenv>=1.2.3",
     "torch>=2.14.0",

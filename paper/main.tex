@@ -458,9 +458,34 @@ that this is what changes which algorithms are reachable.
 \label{sec:res-calibration}
 \input{tables/calibration.tex}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/prefix_value.pdf}
+\caption{Left: the gap the critic holds between prefixes that end well and
+prefixes that end badly, as a function of how much of the response it has seen.
+The outcome is not observable at the time of the query. Right: the fraction of
+responses each critic values at 0 or 1. Saturation is harmless for a terminal
+reward and damaging for a critic, because a temporal-difference error is a
+\emph{difference} between neighbouring values --- a saturated curve carries no
+signal in the middle of a response, which is where credit assignment is
+needed.}
+\label{fig:prefix}
+\end{figure}
+
 \subsection{How fast does the sparse-probe bias vanish?}
 \label{sec:res-density}
 \input{tables/probe_density.tex}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.55\linewidth]{figures/probe_density.pdf}
+\caption{Interpolation error against the number of probes, measured against a
+densely probed value curve, with the two rates of Proposition~\ref{prop:bias}
+anchored at $K=2$ for slope comparison. The mean error tracks the Lipschitz
+rate; the worst case does not, which is the signature of a value curve that
+steps rather than bends.}
+\label{fig:density}
+\end{figure}
 
 The mean error decays as $K^{-1.03}$, which is the Lipschitz rate of
 Proposition~\ref{prop:bias} essentially exactly, and \emph{not} the
