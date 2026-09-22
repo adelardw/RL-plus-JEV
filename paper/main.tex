@@ -430,6 +430,30 @@ straw man rather than a baseline.
 \label{sec:res-density}
 \input{tables/probe_density.tex}
 
+The mean error decays as $K^{-1.03}$, which is the Lipschitz rate of
+Proposition~\ref{prop:bias} essentially exactly, and \emph{not} the
+$K^{-2}$ that bounded curvature would give. The worst-case error behaves
+differently: it decays as $K^{-0.35}$, far more slowly, and is still
+0.12 at $K=16$.
+
+We read the gap between the two as evidence that the value curve is Lipschitz
+but not smooth --- that it contains localised near-discontinuities. That is what
+one should expect from the task rather than from the estimator: a response can
+commit to being bad at a particular token, by opening a self-promotional
+clause or by turning evasive, and the expected final quality drops abruptly
+there. No amount of uniform probing recovers a step.
+
+Two things follow. First, $K$ buys mean accuracy efficiently and worst-case
+accuracy barely, so the usual instinct to raise $K$ until the critic "looks
+converged" spends calls on the wrong quantity. At $K=6$, the setting we use,
+the mean error is 0.036 in probability units, which the calibration of
+Section~\ref{sec:res-calibration} maps to roughly 0.08 in reward units on a
+scale of width 5. Second, and more usefully, it suggests that probes should not
+be placed uniformly: allocating them where the value curve moves fastest would
+attack precisely the error that $K$ does not. We leave adaptive probe placement
+to future work, but note that the measurement here is what identifies it as the
+right thing to try.
+
 \subsection{GRPO: varying the reward source}
 \input{tables/grpo_main.tex}
 

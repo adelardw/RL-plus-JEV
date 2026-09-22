@@ -1,4 +1,25 @@
-\begin{table}[t]\centering
-\caption{Interpolation error against the number of probes.}\label{tab:density}
-\textcolor{red}{[pending: run not yet complete]}
+\begin{table}[t]\centering\small
+\caption{Bias of the sparsely-probed critic, measured against a densely
+probed value curve on $n=15$ completions
+(every 4 tokens, 30 probes each).
+For each $K$ the sparse estimate is rebuilt from $K$ of the same probes, so the
+comparison isolates interpolation error from judge noise. The fitted decay is
+$K^{-1.03}$ for the mean error and
+$K^{-0.35}$ for the worst case; by
+Proposition~\ref{prop:bias} an exponent near $-1$ indicates a merely
+Lipschitz value curve and near $-2$ a curve with bounded curvature.}
+\label{tab:density}
+\begin{tabular}{cccc}
+\toprule
+$K$ probes & Segments & Mean $|\hat V - V^\ast|$ & Max $|\hat V - V^\ast|$ \\
+\midrule
+2 & 1 & 0.1220 & 0.2731 \\
+3 & 2 & 0.0689 & 0.2411 \\
+4 & 3 & 0.0481 & 0.2251 \\
+6 & 5 & 0.0358 & 0.1918 \\
+8 & 7 & 0.0264 & 0.1782 \\
+12 & 11 & 0.0185 & 0.1593 \\
+16 & 15 & 0.0128 & 0.1248 \\
+\bottomrule
+\end{tabular}
 \end{table}
