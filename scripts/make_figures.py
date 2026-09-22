@@ -86,7 +86,7 @@ def fig_prefix_value(cal: dict, out: Path) -> None:
 
     ax1.set_xlabel("fraction of the response seen")
     ax1.set_ylabel(r"$V(\mathrm{good}) - V(\mathrm{bad})$")
-    ax1.set_title("Separation grows as the response unfolds", loc="left")
+    ax1.set_title("All three separate outcomes before the end", loc="left")
     ax1.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax1.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])   # no tick past the data
     ax1.axhline(0, color=GRID, linewidth=1)
@@ -113,7 +113,7 @@ def fig_prefix_value(cal: dict, out: Path) -> None:
                          textcoords="offset points", xytext=(0, 3),
                          ha="center", color=INK, fontsize=7.5)
         ax2.set_ylabel("responses valued at 0 or 1 (%)")
-        ax2.set_title("Saturation: no gradient left to give", loc="left")
+        ax2.set_title("Values pinned at the extremes", loc="left")
         ax2.set_ylim(0, max(values) * 1.25 + 1)
     if ax2 is not None:
         _clean(ax2)

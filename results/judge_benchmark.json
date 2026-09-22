@@ -1,0 +1,58 @@
+{
+ "n": 300,
+ "sources": {
+  "jev": {
+   "accuracy": 0.64,
+   "n": 300,
+   "mean_margin": 0.4228166666666667,
+   "margin_sd": 1.0671810535514046,
+   "cohens_d": 0.3961995626324153,
+   "wall_s": 5.9,
+   "cost": {
+    "name": "judge_benchmark_jev",
+    "cost_usd": 0.02603,
+    "calls": 598,
+    "cache_hits": 2,
+    "input_tokens": 619768,
+    "latency_p50_s": 0.3314,
+    "latency_p95_s": 0.9007,
+    "latency_mean_s": 0.3971
+   }
+  },
+  "api_judge:deepseek-v4-flash-0731": {
+   "accuracy": 0.6766666666666666,
+   "n": 300,
+   "mean_margin": 0.4866704491168453,
+   "margin_sd": 0.9950831467028213,
+   "cohens_d": 0.48907515992951295,
+   "wall_s": 154.3,
+   "cost_usd": 0.092411,
+   "calls": 2990,
+   "unreadable_fraction": 0.0177
+  },
+  "bert_rm": {
+   "accuracy": 0.5966666666666667,
+   "n": 300,
+   "mean_margin": 0.33153226216634113,
+   "margin_sd": 1.7354505417329404,
+   "cohens_d": 0.19103526962819026,
+   "wall_s": 54.1
+  },
+  "llm_judge:Qwen2.5-3B-Instruct": {
+   "accuracy": 0.5766666666666667,
+   "n": 300,
+   "mean_margin": 0.17264135406656964,
+   "margin_sd": 0.6848672129911743,
+   "cohens_d": 0.25208003944670426,
+   "wall_s": 799.2
+  },
+  "llm_judge:Qwen2.5-7B-Instruct": {
+   "accuracy": 0.6466666666666666,
+   "n": 300,
+   "mean_margin": 0.45040359169319627,
+   "margin_sd": 1.1727516079533382,
+   "cohens_d": 0.3840571086312397,
+   "wall_s": 1831.4
+  }
+ }
+}

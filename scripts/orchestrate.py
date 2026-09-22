@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -103,9 +104,48 @@ def session_outcome() -> dict:
         return {}
 
 
+def _produced_output(job: dict, plan_written_at: float) -> bool:
+    """Did *this* job's artifact arrive, from *this* plan?
+
+    Two ways to get this wrong, both of which happened. A job is not done
+    because a session's state file says it finished: a cancelled session leaves
+    "completed" entries whose artifacts were never packaged, since Kaggle only
+    commits the working directory on a clean exit. And a job is not done
+    because a file of the right *name* exists: an earlier run of a different
+    configuration writes the same filename, so the name is not the identity.
+    The artifact must also post-date the plan that asked for it.
+    """
+    parts = job.get("command", "").split()
+    if "--out" not in parts:
+        return False                      # cannot verify, so do not assume
+    name = pathlib.Path(parts[parts.index("--out") + 1]).name
+    for cand in (FETCH_DIR / "results" / name, PROJECT / "results" / name):
+        try:
+            if cand.exists() and cand.stat().st_mtime >= plan_written_at:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def next_plan(plan: dict, outcome: dict, retry_failed: bool) -> dict:
+    import calendar
+
+    written = plan.get("written_at")
+    try:
+        cutoff = calendar.timegm(time.strptime(written, "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        cutoff = 0.0                      # unknown: fall back to existence
+
     done = set(plan.get("done", []))
-    done |= {r["name"] for r in outcome.get("completed", [])}
+    claimed = {r["name"] for r in outcome.get("completed", [])}
+    verified = {j["name"] for j in plan["jobs"]
+                if j["name"] in claimed and _produced_output(j, cutoff)}
+    lost = claimed - verified
+    if lost:
+        print(f"re-queued despite being marked complete, because their output "
+              f"is not on disk: {sorted(lost)}", flush=True)
+    done |= verified
     if not retry_failed:
         done |= {r["name"] for r in outcome.get("failed", [])}
     remaining = [j for j in plan["jobs"] if j["name"] not in done]
@@ -123,6 +163,9 @@ def main() -> None:
     ap.add_argument("--timeout-hours", type=float, default=11.5)
     ap.add_argument("--no-wait", action="store_true",
                     help="the session already finished; just collect")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="report what would happen and change nothing -- this "
+                         "command otherwise fetches and republishes the dataset")
     ap.add_argument("--retry-failed", action="store_true", default=True)
     ap.add_argument("--no-retry-failed", dest="retry_failed", action="store_false")
     ap.add_argument("--auto", action="store_true",
@@ -144,6 +187,14 @@ def main() -> None:
         print(f"waiting on {ref} ...", flush=True)
         st = wait_terminal(api, ref, args.poll, args.timeout_hours * 3600)
         print("terminal status:", st, flush=True)
+
+    if args.dry_run:
+        print("[dry-run] would fetch artifacts, lift resume state, and publish "
+              "the next plan; doing none of it", flush=True)
+        outcome = session_outcome()
+        nxt = next_plan(plan, outcome, args.retry_failed)
+        print(f"[dry-run] jobs still to run: {nxt.pop('_remaining')}", flush=True)
+        return
 
     rc = sh("scripts/fetch_artifacts.py", "--to", str(FETCH_DIR))
     if rc != 0:
@@ -183,8 +234,7 @@ def main() -> None:
 
     if not args.auto:
         sh("scripts/kaggle_run.py", "set-jobs", "--jobs", str(out))
-        print("\nNEXT: start the batch with "
-              "`python scripts/kaggle_run.py run`", flush=True)
+        print("\nNEXT: python scripts/kaggle_run.py run", flush=True)
         return
 
     left = quota_hours_left(api)

@@ -471,16 +471,37 @@ rather than resting the argument on a single ratio.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/prefix_value.pdf}
-\caption{Left: the gap the critic holds between prefixes that end well and
+\caption{Left: the gap each critic holds between prefixes that end well and
 prefixes that end badly, as a function of how much of the response it has seen.
-The outcome is not observable at the time of the query. Right: the fraction of
-responses each critic values at 0 or 1. Saturation is harmless for a terminal
-reward and damaging for a critic, because a temporal-difference error is a
-\emph{difference} between neighbouring values --- a saturated curve carries no
-signal in the middle of a response, which is where credit assignment is
-needed.}
+The outcome is not observable at the time of the query. All three separate the
+two groups before the response ends, which is the claim the critic role rests
+on, and the hosted judge separates them most. Right: the fraction of responses
+each critic values at exactly 0 or 1. These two panels are in tension --- the
+judge with the widest separation is also the one most often pinned at an
+extreme --- and Section~\ref{sec:res-calibration} takes that up.}
 \label{fig:prefix}
 \end{figure}
+
+\paragraph{The mechanism transfers, and the reading we expected does not.}
+All three readers answer the prefix question usefully: AUC against the
+eventual outcome rises with the fraction of the response seen for each of them,
+so the critic role is a property of \emph{readable calibrated belief} rather
+than of one vendor's model. That is the claim we set out to test, and it holds.
+
+What does not hold is the reading we expected of the second panel. We had
+supposed that a saturated critic would be a worse critic, because a
+temporal-difference error is a difference between neighbouring values and a
+curve pinned at 0 or 1 has none to give. The data do not support that as
+stated: the hosted judge saturates on three quarters of responses and yet holds
+the \emph{widest} separation and the highest terminal AUC. Saturation and
+discrimination are not in conflict --- pushing values to the extremes is what
+widens the gap between groups, at the cost of resolution within them.
+
+The question the two panels actually pose is therefore narrower than we
+framed it, and we have not answered it here: whether the gradient a critic
+supplies \emph{between} probe points matters more to PPO than the separation
+it achieves at the end. That is decided by the PPO arms, not by this
+measurement, and we resist reading it off a correlation.
 
 \subsection{How fast does the sparse-probe bias vanish?}
 \label{sec:res-density}

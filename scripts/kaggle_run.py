@@ -538,6 +538,12 @@ def wait_for(api, poll: float = 60, timeout_s: float = 12 * 3600) -> str:
 def set_jobs(api, jobs_file: Path) -> None:
     plan = json.loads(jobs_file.read_text())
     plan["written_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # Stamp the source plan too, not only the published copy: the orchestrator
+    # decides whether a job is done by asking whether its artifact post-dates
+    # the plan that asked for it, and an unstamped plan falls back to "a file
+    # of that name exists", which an earlier run of a different configuration
+    # satisfies.
+    jobs_file.write_text(json.dumps(plan, indent=1))
     active = PROJECT / "jobs" / "active.json"
     active.parent.mkdir(exist_ok=True)
     active.write_text(json.dumps(plan, indent=1))
@@ -545,8 +551,9 @@ def set_jobs(api, jobs_file: Path) -> None:
     est = sum(j.get("est_seconds", 0) for j in plan["jobs"]) / 3600
     print(f"\nplan '{plan.get('name')}' is live: {len(plan['jobs'])} jobs, "
           f"~{est:.1f} GPU-h estimated")
-    print(f"  now click 'Save & Run All' on "
-          f"https://www.kaggle.com/code/{_username()}/{RUNNER_SLUG}")
+    print(f"  start it with: python scripts/kaggle_run.py run")
+    print(f"  (or Save & Run All on "
+          f"https://www.kaggle.com/code/{_username()}/{RUNNER_SLUG})")
 
 
 def status(api) -> None:
