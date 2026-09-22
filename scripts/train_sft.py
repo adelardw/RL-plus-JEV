@@ -10,6 +10,10 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
 
+from rljevf.guardrails import pin_single_gpu
+
+pin_single_gpu()
+
 import argparse
 import json
 from pathlib import Path

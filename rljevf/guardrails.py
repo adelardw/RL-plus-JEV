@@ -51,3 +51,25 @@ def require_experiment_host(name: str, allow_smoke: bool = True) -> str:
 
 def is_smoke() -> bool:
     return "--smoke" in sys.argv or os.environ.get("RLJEVF_SMOKE") == "1"
+
+
+def pin_single_gpu(reason: str = "training") -> None:
+    """Restrict training to one GPU.
+
+    With two devices visible, the HuggingFace Trainer wraps the model in
+    `nn.DataParallel`, which scatters the batch across both and then fails --
+    "index is on cuda:1, different from other tensors on cuda:0" -- for models
+    that were never set up for it. A 0.5B policy with LoRA does not need a
+    second card, and leaving the second free is what lets a local judge sit
+    beside the run rather than competing with it.
+
+    Must be called before CUDA initialises, which is why it edits the
+    environment rather than calling into torch.
+    """
+    import os
+
+    if os.environ.get("CUDA_VISIBLE_DEVICES") is not None:
+        return
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    print(f"[{reason}] pinned to one GPU: the Trainer would otherwise use "
+          f"DataParallel across every visible device", flush=True)
