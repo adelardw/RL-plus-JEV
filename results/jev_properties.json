@@ -1,0 +1,51 @@
+{
+ "rows": [
+  [
+   "Model",
+   "\\texttt{typesafe/jev-1.13}"
+  ],
+  [
+   "Access",
+   "OpenRouter \\texttt{/api/alpha/decisions}"
+  ],
+  [
+   "Question types",
+   "\\textsc{noul}, \\textsc{choice}, \\textsc{score}"
+  ],
+  [
+   "Output",
+   "typed values with probabilities; no text"
+  ],
+  [
+   "Context",
+   "32{,}000 tokens"
+  ],
+  [
+   "Measured cost",
+   "\\$0.0299 per 1{,}000 calls (5-question rubric)"
+  ],
+  [
+   "Measured latency p50 / p95",
+   "0.57\\,s / 1.28\\,s"
+  ],
+  [
+   "Measured throughput",
+   "23.2 calls/s at concurrency 32"
+  ],
+  [
+   "Mean input tokens per call",
+   "713"
+  ]
+ ],
+ "raw": {
+  "name": "jev_props",
+  "cost_usd": 0.000958,
+  "calls": 32,
+  "cache_hits": 0,
+  "input_tokens": 22806,
+  "latency_p50_s": 0.5677,
+  "latency_p95_s": 1.2785,
+  "latency_mean_s": 0.7042
+ },
+ "wall_s": 1.3780960830044933
+}

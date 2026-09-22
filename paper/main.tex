@@ -1,0 +1,331 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{natbib}
+\usepackage{caption}
+
+\newcommand{\jev}{\textsc{Jev}}
+\newcommand{\todo}[1]{\textcolor{red}{[#1]}}
+
+\title{Typed, Calibrated Decisions as a Reward Source \emph{and} as a Critic\\
+for Reinforcement Learning Fine-Tuning of Language Models}
+
+\author{%
+  \\ \\
+  \texttt{}%
+}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Reinforcement learning fine-tuning of language models needs a source of reward,
+and every source in common use is a compromise. A Bradley--Terry reward model is
+cheap but frozen in the preference distribution it was fit to and capped by a
+short context window. An LLM judge is flexible but expensive, slow, and read
+through a lossy text-parsing step. A self-judge is free but, at small scale,
+close to noise. We study a fourth option that has not previously been used for
+RL: a \emph{System One} model, which emits typed, calibrated answers to
+predeclared questions and never generates text. We use \jev{} (TypeSafe) in two
+roles. As a \textbf{reward function} it answers a fixed rubric about a finished
+response in one request, returning per-question probabilities directly, with no
+parsing. As a \textbf{critic} it answers a forward-looking question about a
+\emph{partial} response --- ``will this, once finished, be correct and
+helpful?'' --- which is exactly the quantity PPO's value network is trained to
+predict. We show empirically that this prefix probability tracks eventual
+response quality
+(\input{tables/calib_inline.tex}\unskip),
+which licenses replacing PPO's learned value head with a frozen, zero-shot,
+externally calibrated critic: no value parameters, no value loss, no
+bootstrapping from a critic that is itself still learning.
+We compare five reward sources under GRPO at a matched reward-call budget, and
+two critics under PPO, holding the start checkpoint, prompt set, prompt order,
+decoding parameters and KL coefficient fixed, and evaluating at matched
+KL rather than at matched step count. We report a cross-reward matrix that
+separates genuine improvement from over-optimisation of whichever judge a run
+was trained against, and full cost accounting.
+\todo{headline results once runs complete}
+\end{abstract}
+
+\section{Introduction}
+
+The standard recipe for aligning a language model with reinforcement learning
+fixes an optimiser --- PPO \citep{schulman2017ppo,ouyang2022instructgpt} or a
+critic-free variant such as GRPO \citep{shao2024deepseekmath} --- and varies
+almost everything else. In practice the component that determines whether the
+run is useful, and most of what it costs, is the \emph{reward source}: the thing
+that turns a sampled response into a number.
+
+Three families dominate. A \textbf{learned reward model} fits a Bradley--Terry
+objective to human preference pairs \citep{bradley1952rank,stiennon2020summarize}
+and is then frozen; it is nearly free to query, but inherits the distribution of
+the preference data and, for the encoder models typically used, a 512-token
+window. \textbf{LLM-as-judge} / RLAIF prompts a capable instruct model to grade
+the response \citep{bai2022constitutional,lee2024rlaif,zheng2023judging}; it
+generalises far better, but each judgment is an autoregressive generation that
+must be parsed, and the parse is a lossy, brittle step between the judge's
+belief and the scalar the optimiser sees. \textbf{Self-rewarding} setups
+\citep{yuan2024selfrewarding} let the policy grade itself, which removes the
+external cost but, at the model scales most practitioners can afford to train,
+produces a judge barely better than chance.
+
+A fourth kind of model has recently become available and does not fit this
+taxonomy. TypeSafe's \jev{} \citep{typesafe2026jev} is a \emph{System One} model:
+it is given a state and a set of questions declared in advance, and it returns
+\emph{typed} answers --- a probability for a yes/no proposition, a distribution
+over named options, an expected level on an ordered scale --- together with
+calibration information. It does not produce text. Because the answer space is
+fixed by the request, the model cannot return a value outside the schema, and
+because no tokens are decoded, a judgment costs roughly one prefill and returns
+in a fraction of a second.
+
+For reinforcement learning this combination is unusually well matched to the
+problem, in two separate ways, and the distinction between them is the subject
+of this paper.
+
+\paragraph{As a reward function.} A rubric is a set of predeclared questions.
+That is precisely \jev{}'s input format, so a multi-criterion reward becomes one
+request, the per-criterion answers come back as numbers rather than as prose to
+be parsed, and the scalarisation is the experimenter's choice rather than an
+artefact of how a judge happened to phrase itself.
+
+\paragraph{As a critic.} In a language-model MDP with a single terminal reward
+$R$, the value function is
+\begin{equation}
+V^{\pi}(s_t) \;=\; \mathbb{E}\!\left[\, R \,\middle|\, x,\, y_{<t} \,\right],
+\label{eq:value}
+\end{equation}
+the expected quality of the finished response given the prefix generated so far.
+This is a question about a partial state with a yes/no answer, which is exactly
+the shape \jev{} accepts. PPO normally learns \eqref{eq:value} with a value head
+trained online against its own returns. If an external model can answer it
+zero-shot, in calibrated units, for a fraction of a cent, the value network
+becomes unnecessary --- and with it the value parameters, the value loss, the
+value optimiser state, and the bootstrapping bias of a critic that is itself
+still being fit. To our knowledge no prior work uses an external judge as a
+token-level critic; judges are used to produce terminal rewards.
+
+\paragraph{A design note on what we did \emph{not} test.} A natural fourth
+condition --- ``\jev{} as an evaluator'' --- collapses into the reward-function
+condition. Scoring a finished response and taking the resulting scalar as the
+learning signal \emph{is} using \jev{} as a reward function; running it as a
+separate arm would duplicate a column. We therefore drop it and spend the
+comparison budget on the critic role, which is genuinely distinct because it
+queries states the reward function never sees.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+  \item The first study of a typed-decision (System One) model as a reward
+    source for RL fine-tuning, compared against a Bradley--Terry reward model,
+    an LLM judge (RLAIF) and a self-judge under an identical rubric, identical
+    scalarisation, and a matched budget of reward calls.
+  \item \jev{} as a \emph{critic}: we show its prefix probability is an
+    empirically calibrated estimator of final response quality, and use it to
+    run PPO with no value network at all.
+  \item A fairness protocol that reads the LLM and self-judges
+    \emph{from their logits} rather than by parsing text, so that the
+    dense, parse-free property is not silently granted to \jev{} alone.
+  \item An ablation on where the rubric comes from
+    (\textsc{StructuredGeneration2Jev}): fixed, generated per prompt by a frozen
+    LLM, or proposed by the policy being trained --- the last as a deliberate
+    reward-hacking probe.
+  \item Cost and latency accounting for every arm, measured rather than quoted.
+\end{enumerate}
+
+\section{Background}
+
+\subsection{RL fine-tuning}
+We use two optimisers. \textbf{PPO} \citep{schulman2017ppo} maximises a clipped
+surrogate with advantages from GAE \citep{schulman2016gae}, requiring a critic
+$V$. \textbf{GRPO} \citep{shao2024deepseekmath} removes the critic by sampling
+$G$ completions per prompt and using the group mean as the baseline; it is the
+natural setting in which to vary the reward source alone, since no value network
+confounds the comparison.
+
+\subsection{Reward sources}
+\label{sec:sources}
+See Section~\ref{sec:method} for exact definitions. Briefly: a frozen DeBERTa
+Bradley--Terry model; a frozen instruct LLM read through logits; a frozen copy of
+the SFT checkpoint read the same way; \jev{}; and, as a degenerate control, the
+policy's own token-level self-certainty, which consults nothing external.
+
+\subsection{System One models and \jev{}}
+\jev{} accepts a \emph{state} and a map of \emph{questions}, and returns one
+typed answer each \citep{typesafe2026jev}. Three question types exist: a
+\textsc{noul} returns $P(\text{true}) \in [0,1]$ for a proposition; a
+\textsc{choice} returns a distribution over named options plus a confidence; a
+\textsc{score} returns an expected level on an ordered rubric of $2$--$10$
+levels, plus the level distribution and a confidence. All questions in a request
+are answered against the same state, and adding questions has little effect on
+latency. We access \jev{} 1.13 through OpenRouter's decisions endpoint. Measured
+properties relevant to RL are given in Table~\ref{tab:jevprops}.
+
+\input{tables/jev_properties.tex}
+
+\section{Method}
+\label{sec:method}
+
+\subsection{A single rubric, rendered into each judge's native format}
+\label{sec:rubric}
+Every judge-based arm answers the same five questions about a
+(request, response) pair: \textsc{correct} (noul, $+$), \textsc{helpful}
+(3-level score, $+$), \textsc{padded} (noul, $-$), \textsc{evasive} (noul, $-$)
+and \textsc{self\_promo} (noul, $-$). Writing $\hat{q}_i \in [0,1]$ for the
+normalised answer to question $i$ (a score of $L$ levels is divided by $L-1$),
+the reward is
+\begin{equation}
+R \;=\; \hat{q}_{\text{correct}} \;+\; \hat{q}_{\text{helpful}}
+      \;-\; \hat{q}_{\text{padded}} \;-\; \hat{q}_{\text{evasive}}
+      \;-\; \hat{q}_{\text{self\_promo}} \;\in\; [-3, +2].
+\label{eq:reward}
+\end{equation}
+\textsc{self\_promo} is not optional. The policy's own text sits inside the
+judge's state, so a policy can learn to assert its own quality at the judge; we
+both penalise it in the reward and track it as a hacking detector
+(Section~\ref{sec:eval}).
+
+\subsection{Reading judges without parsing}
+\label{sec:parsefree}
+Comparing a typed model against a text-generating judge invites an unfair
+advantage: if the LLM judge is read by parsing its prose, we are partly
+measuring parse failures. We therefore read every generative judge from its
+logits. For a noul we take
+$P(\textsf{yes}) / (P(\textsf{yes}) + P(\textsf{no}))$, summing over
+capitalisation and leading-space variants of each token; for a score we take a
+softmax over the level-index tokens and its expectation. Each question is a
+separate prefill sharing the state prefix, mirroring how \jev{} evaluates
+questions in parallel. The scalarisation \eqref{eq:reward} is then byte-identical
+across \jev{}, the LLM judge and the self-judge.
+
+\subsection{\jev{} as a reward function}
+One request carries the state and all five rubric questions; the answers are
+normalised and combined by \eqref{eq:reward}. No parsing, no retry-on-malformed,
+and one network round trip per completion regardless of rubric size.
+
+\subsection{\jev{} as a critic}
+\label{sec:critic}
+We ask \jev{} a single forward-looking noul about a \emph{partial} response:
+\emph{if the assistant continues in the same direction and finishes, will the
+completed response be a correct and genuinely helpful answer?} Write $p_t$ for
+the returned probability at prefix length $t$.
+
+\paragraph{Calibration.} $p_t$ lives in $[0,1]$ and $R$ in $[-3,+2]$, so TD
+errors computed from raw $p_t$ would be in arbitrary units. We fit
+$\hat{V}(s_t) = a\,p_t + b$ by least squares on held-out
+(complete response, reward) pairs drawn from the SFT policy, and report $R^2$,
+so the quality of the map is visible rather than assumed
+(Section~\ref{sec:res-calibration}).
+
+\paragraph{Sparse probing.} Querying every token position is unnecessary and
+would dominate cost. We probe $K$ positions per completion, evenly spaced in
+token index, and interpolate $\hat{V}$ piecewise-linearly between them; $K$ is an
+ablation axis. Advantages then follow standard GAE with $\gamma = 1$, using
+$\hat{V}(s_{T}) = 0$ at the terminal state.
+
+\paragraph{What this removes.} The Jev-critic arm has no value head, no value
+loss term, no value learning rate and no value optimiser state. Against the
+learned-critic arm it differs in exactly that, since both run through the same
+PPO implementation.
+
+\subsection{\textsc{StructuredGeneration2Jev}}
+\label{sec:sg2jev}
+The component that decides \emph{which} questions \jev{} is asked is a swappable
+axis with three settings. \textbf{static}: the fixed rubric of
+Section~\ref{sec:rubric}; the only setting under which \jev{}, the LLM judge and
+the self-judge are comparable, and therefore the setting used in the main
+pipeline. \textbf{generated}: a frozen LLM writes up to three task-specific
+questions per \emph{prompt}, each carrying an explicit sign, appended to the
+fixed rubric; questions are generated per prompt and cached, never per
+completion, since a reward that depends on the completion through the question
+set is not a function of the completion and makes the RL objective ill-posed.
+\textbf{policy}: the model being trained proposes its own questions --- a
+deliberate reward-hacking probe, since nothing prevents it from proposing
+criteria it trivially satisfies. Generated questions are schema-validated and
+dropped if malformed; rewards are rescaled by the rubric's attainable range so
+that a longer rubric does not inflate the reward scale.
+
+\subsection{Controlled variables}
+\label{sec:controls}
+Identical across every run: the SFT start checkpoint, the prompt set and its
+order (fixed dataloader seed, verified by a logged fingerprint), decoding
+parameters, KL coefficient, $G$ for GRPO, and the \emph{budget of reward calls}
+rather than the number of steps. We use three seeds per arm and report
+mean $\pm$ standard deviation.
+
+\section{Experimental setup}
+
+\input{tables/setup.tex}
+
+\subsection{Evaluation}
+\label{sec:eval}
+\paragraph{Quality.} Head-to-head win-rate against the SFT checkpoint on held-out
+prompts, judged by a model from a family used by \emph{no} training reward
+source. Each pair is judged twice with positions swapped and averaged, removing
+position bias. The headline number is length-controlled in the AlpacaEval-2
+sense \citep{dubois2024lengthcontrolled}: we fit
+$P(\text{win}) = \sigma(\theta + \gamma\,\Delta\ell)$ over standardised length
+differences and report $\sigma(\theta)$. Confidence intervals are bootstrap over
+prompts.
+
+\paragraph{Matched divergence.} Arms are compared at equal
+$\mathrm{KL}(\pi \,\|\, \pi_{\text{ref}})$, not at equal step count; a reward
+source that moves faster per step is not thereby better.
+
+\paragraph{Hacking detectors.} GSM8K accuracy (a judge can be talked into
+approval; arithmetic cannot), mean response length, self-praise phrase rate,
+distinct-2, and the gap between training reward and held-out quality.
+
+\paragraph{Cross-reward matrix.} Every final checkpoint is scored by
+\emph{every} reward source. The diagonal is what a run optimised; the
+off-diagonal is what the other judges make of it. We report
+$\text{diag} - \overline{\text{off-diag}}$ in baseline-relative units as an
+over-optimisation index.
+
+\paragraph{Cost.} Dollars, wall-clock, reward-call count and reward latency
+(p50/p95), measured in-run rather than quoted from documentation.
+
+\section{Results}
+
+\subsection{Is \jev{}'s prefix probability a value function?}
+\label{sec:res-calibration}
+\input{tables/calibration.tex}
+
+\subsection{GRPO: varying the reward source}
+\input{tables/grpo_main.tex}
+
+\subsection{PPO: varying the critic}
+\input{tables/ppo_main.tex}
+
+\subsection{Reward hacking and over-optimisation}
+\input{tables/cross_matrix.tex}
+
+\subsection{Where the rubric comes from}
+\input{tables/sg2jev.tex}
+
+\subsection{Cost}
+\input{tables/cost.tex}
+
+\section{Limitations}
+\jev{} is a closed model with no published architecture or weights, so its
+calibration is an empirical property we measure rather than one we can reason
+about from first principles, and it may shift between versions; we pin
+\texttt{jev-1.13} and record the dated model string returned with every
+response. Our policy scale (0.5B) is set by the compute available and the
+ranking of reward sources may not transfer to substantially larger policies.
+The prefix critic is probed at $K$ positions and interpolated, so the resulting
+advantages are piecewise approximations of a true token-level value function.
+Finally, using a hosted model's outputs as a training signal is subject to that
+provider's terms of service, which we checked before running.
+
+\section{Conclusion}
+\todo{on completion of runs}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+.cache
+.claudeignore
+kaggle.json
+.python-version
+CLAUDE.md
+RULES.md
+MEMORY.md
+# Experiment artefacts: model weights and staging copies, not source
+runs/
+.kaggle_staging/
+*.safetensors

@@ -1,0 +1,27 @@
+\begin{table}[t]\centering\small
+\caption{Configuration. Every entry is held fixed across all arms except the
+reward source (GRPO phase) and the critic (PPO phase).}
+\label{tab:setup}
+\begin{tabular}{ll}
+\toprule
+Component & Setting \\
+\midrule
+Policy & \texttt{Qwen/Qwen2.5-0.5B-Instruct} \\
+SFT data & UltraFeedback (binarized), chosen responses \\
+RL prompts & UltraFeedback \texttt{train\_prefs}, fixed order \\
+Held-out prompts & UltraFeedback \texttt{test\_prefs}, 200 \\
+Ground-truth task & GSM8K, 250 test problems \\
+BERT RM & \texttt{OpenAssistant/reward-model-deberta-v3-large-v2} \\
+RLAIF judge & \texttt{Qwen/Qwen2.5-1.5B-Instruct}, read from logits \\
+Self-judge & frozen copy of the SFT checkpoint \\
+\jev{} & \texttt{typesafe/jev-1.13} \\
+Evaluation judge & \texttt{openai/gpt-4.1-mini} (unrelated to every training judge) \\
+GRPO & $G=8$, 16 prompts/step, 250 steps, lr $10^{-6}$, $\beta=0.04$ \\
+PPO & 64 prompts/step, 150 steps, lr $10^{-6}$, KL coef 0.05, GAE $\lambda=0.95$ \\
+Reward-call budget & 32,000 per GRPO run (matched across sources) \\
+Decoding & temperature 1.0, top-$p$ 1.0, max 384 new tokens \\
+Seeds & 3 per core arm \\
+Hardware & 2$\times$NVIDIA T4 (16\,GB), Kaggle \\
+\bottomrule
+\end{tabular}
+\end{table}

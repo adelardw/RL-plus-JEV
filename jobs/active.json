@@ -1,0 +1,32 @@
+{
+ "name": "week0-benchmark",
+ "budget_usd": 2.0,
+ "session_seconds": 9000,
+ "pip": ["trl==1.13.0", "transformers==5.17.0", "datasets==5.0.1", "httpx"],
+ "jobs": [
+  {
+   "name": "selftest",
+   "command": "scripts/kaggle_selftest.py",
+   "est_seconds": 420,
+   "why": "proves the environment, the secret, Jev reachability and throughput before anything expensive"
+  },
+  {
+   "name": "gpu-benchmark",
+   "command": "scripts/gpu_benchmark.py --steps 5 --grpo-prompts 16 --grpo-g 8 --ppo-prompts 64 --max-new 384 --micro-bs 8 --gen-bs 16 --skip-vllm",
+   "est_seconds": 1500,
+   "why": "seconds per step for GRPO and PPO at the real settings, so the weekly batches can be sized honestly"
+  },
+  {
+   "name": "judge-benchmark",
+   "command": "scripts/judge_benchmark.py --n 300 --judges Qwen/Qwen2.5-1.5B-Instruct,Qwen/Qwen2.5-3B-Instruct,Qwen/Qwen2.5-7B-Instruct --out /kaggle/working/results/judge_benchmark.json",
+   "est_seconds": 2400,
+   "why": "picks the RLAIF judge on evidence: the smallest judge that actually separates chosen from rejected"
+  },
+  {
+   "name": "calibration-study",
+   "command": "scripts/calibration_study.py --n 256 --max-new-tokens 256 --out /kaggle/working/results/calibration_study.json",
+   "est_seconds": 1800,
+   "why": "the paper's Experiment 1: is Jev's prefix probability a value function?"
+  }
+ ]
+}
