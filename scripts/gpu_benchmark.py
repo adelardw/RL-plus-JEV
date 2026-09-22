@@ -23,8 +23,8 @@ from rljevf.config import supports_bf16
 from rljevf.guardrails import require_experiment_host
 
 
-def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm,
-               optim="adamw_torch", lora_r=0):
+def bench_grpo(model_name, steps, G, max_new, use_vllm,
+               micro_bs=8, prompts=16, optim="adamw_torch", lora_r=0):
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import GRPOConfig, GRPOTrainer
 
@@ -122,32 +122,37 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs,
             "step_times": [h["step_time_s"] for h in hist]}
 
 
-def autofit(fn, label: str, sizes: list[int], **kw) -> dict:
-    """Find the largest micro-batch that actually fits, and time it there.
+def autofit(fn, label: str, configs: list[dict], **kw) -> dict:
+    """Search the configurations that actually control memory, in order.
 
-    Guessing this wastes a Kaggle session per wrong guess: the study's real
-    settings OOMed on a T4 twice. Searching downward answers "what can we run"
-    in one job instead.
+    There are two independent axes, and confusing them wastes a session. The
+    micro-batch governs the training logits; the *generation* batch, which in
+    TRL is the completions produced per optimisation step, governs the KV cache
+    and is unaffected by the micro-batch. A full-fine-tuning run OOMed at
+    micro-batch 8, 4, 2 and 1 with the same 2.23 GiB allocation each time --
+    the constant size was the clue that the micro-batch was the wrong knob.
     """
     import torch
 
-    for mb in sizes:
+    for cfg in configs:
+        mb = cfg["micro_bs"]
         try:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats()
-            print(f"  {label}: trying micro_bs={mb}", flush=True)
-            r = fn(micro_bs=mb, **kw)
-            r["micro_bs"] = mb
+            print(f"  {label}: trying {cfg}", flush=True)
+            r = fn(**cfg, **kw)
+            r.update(cfg)
             r["fit"] = True
             return r
         except torch.cuda.OutOfMemoryError as e:
-            print(f"  {label}: micro_bs={mb} OOM ({str(e)[:70]})", flush=True)
+            print(f"  {label}: {cfg} OOM ({str(e)[:70]})", flush=True)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception as e:  # noqa: BLE001
-            return {"error": f"{type(e).__name__}: {e}", "micro_bs": mb, "fit": False}
-    return {"error": "no micro-batch size fitted", "fit": False}
+            return {"error": f"{type(e).__name__}: {e}", **cfg, "fit": False}
+    return {"error": "no configuration fitted", "fit": False,
+            "tried": configs}
 
 
 def main() -> None:
@@ -177,27 +182,36 @@ def main() -> None:
 
     res = {"model": args.model, "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"}
 
-    sizes = sorted({s for s in (args.micro_bs, 8, 4, 2, 1) if s <= args.micro_bs},
-                   reverse=True)
+    # Vary the generation batch (prompts per step) as well as the micro-batch:
+    # they control different allocations and only one of them affects the KV
+    # cache. Largest total work first.
+    configs = [
+        {"micro_bs": mb, "prompts": pr}
+        for pr in (args.grpo_prompts, args.grpo_prompts // 2, args.grpo_prompts // 4)
+        for mb in (8, 4, 2)
+        if pr >= 1 and mb <= args.micro_bs
+    ]
     for optim in [o for o in args.optims.split(",") if o]:
         for vllm in ([False] if args.skip_vllm else [False, True]):
             key = f"grpo_vllm={vllm}_optim={optim}_lora={args.lora_r}"
             res[key] = autofit(
-                lambda micro_bs, _o=optim, _v=vllm, **kw: bench_grpo(
-                    args.model, args.steps, args.grpo_prompts, args.grpo_g,
-                    args.max_new, micro_bs, _v, _o, args.lora_r),
-                key, sizes)
+                lambda _o=optim, _v=vllm, **cfg: bench_grpo(
+                    args.model, args.steps, args.grpo_g, args.max_new, _v,
+                    optim=_o, lora_r=args.lora_r, **cfg),
+                key, configs)
             print(key, res[key], flush=True)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
 
     if not args.skip_ppo:
         res["ppo"] = autofit(
-            lambda micro_bs, **kw: bench_ppo(
-                args.model, args.steps, args.ppo_prompts, args.max_new,
-                micro_bs, args.gen_bs, min(args.forward_chunk, micro_bs),
-                args.lora_r),
-            "ppo", [s for s in (8, 4, 2, 1) if s <= args.micro_bs] or [1])
+            lambda **cfg: bench_ppo(
+                args.model, args.steps, cfg["prompts"], args.max_new,
+                cfg["micro_bs"], args.gen_bs,
+                min(args.forward_chunk, cfg["micro_bs"]), args.lora_r),
+            "ppo", [{"micro_bs": mb, "prompts": pr}
+                    for pr in (args.ppo_prompts, args.ppo_prompts // 2)
+                    for mb in (4, 2, 1) if mb <= args.micro_bs])
         print("ppo", res["ppo"], flush=True)
 
     # what the weekly quota buys
