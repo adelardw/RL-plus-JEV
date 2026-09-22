@@ -13,6 +13,9 @@ wheels/
 .claudeignore
 kaggle.json
 .python-version
+.kaggle_staging
+.pytest_cache
+.*
 CLAUDE.md
 RULES.md
 MEMORY.md
