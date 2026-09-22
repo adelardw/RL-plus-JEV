@@ -84,6 +84,20 @@ def build(sps, session_seconds, reserve_seconds, budget_usd, with_eval):
                     "needs_api": True,
                     "why": "win-rate, GSM8K, hacking detectors for this checkpoint",
                 })
+    if with_eval:
+        # Last: score every checkpoint with every source. Needs all the eval
+        # completions to exist, so it can only run after the arms above.
+        jobs.append({
+            "name": "cross-reward-matrix",
+            "command": ("scripts/guard.py --name cross-matrix --timeout 3600 "
+                        "--silence-timeout 1200 --heartbeat 120 -- "
+                        "scripts/build_cross_matrix.py --runs /kaggle/working/runs "
+                        "--out /kaggle/working/results/cross_matrix.json"),
+            "est_seconds": 1800,
+            "needs_api": True,
+            "why": "separates 'this reward source works' from 'this policy learned "
+                   "to please this judge'",
+        })
     return jobs
 
 
