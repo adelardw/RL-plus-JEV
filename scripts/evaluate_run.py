@@ -13,7 +13,9 @@ import sys as _sys, pathlib as _pl
 _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
 
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -27,6 +29,13 @@ from rljevf.evaluate.winrate import win_rate
 from rljevf.jevclient import Meter
 from rljevf.orclient import ChatClient
 from rljevf.guardrails import require_experiment_host
+
+
+def fingerprint_of(prompts: list[str]) -> str:
+    h = hashlib.sha256()
+    for p in prompts:
+        h.update(p.encode())
+    return h.hexdigest()[:12]
 
 
 def main() -> None:
@@ -84,15 +93,30 @@ def main() -> None:
 
     # --- win-rate ----------------------------------------------------------
     if not args.skip_winrate:
-        base_path = Path(args.baseline)
-        cache = base_path / "baseline_completions.json"
+        # The baseline's completions are identical for every arm, so they are
+        # sampled once and shared. The cache key covers everything that changes
+        # them; it lives in a cache directory rather than inside the checkpoint,
+        # which may be a bare model id and in any case gets packaged as an
+        # artifact.
+        import hashlib
+
+        key = hashlib.sha1("|".join([
+            args.baseline, str(args.n_eval), str(args.max_new_tokens),
+            str(args.greedy), str(args.seed), fingerprint_of(prompts),
+        ]).encode()).hexdigest()[:16]
+        cache_dir = Path(os.environ.get("RLJEVF_CACHE_ROOT", out.parent / "cache"))
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache = cache_dir / f"baseline_{key}.json"
         if cache.exists():
             bcomps = json.loads(cache.read_text())["completions"]
+            print(f"reusing baseline completions from {cache.name}", flush=True)
         else:
             bcomps = sample(base_model, base_tok, prompts, device,
                             max_new_tokens=args.max_new_tokens, greedy=args.greedy,
                             seed=args.seed, batch_size=args.batch_size)
-            cache.write_text(json.dumps({"prompts": prompts, "completions": bcomps}, indent=1))
+            cache.write_text(json.dumps(
+                {"baseline": args.baseline, "prompts": prompts,
+                 "completions": bcomps}, indent=1))
         judge = ChatClient(args.judge, concurrency=12,
                            meter=Meter(name=f"evaljudge_{args.judge.replace('/', '_')}"))
         wr = win_rate(prompts, comps, bcomps, judge, seed=args.seed)
