@@ -20,6 +20,7 @@ from trl import SFTConfig, SFTTrainer
 
 from rljevf.config import POLICY_MODEL, RUN_ROOT, supports_bf16
 from rljevf.data import fingerprint, sft_dataset
+from rljevf.guardrails import require_experiment_host
 
 
 def main() -> None:
@@ -33,7 +34,10 @@ def main() -> None:
     ap.add_argument("--max-length", type=int, default=1024)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=str(RUN_ROOT / "R0-sft"))
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("train_sft")
 
     ds = sft_dataset(n=args.n, seed=args.seed)
     print("SFT data:", fingerprint(ds, key="messages"), flush=True)

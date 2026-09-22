@@ -31,6 +31,7 @@ from rljevf.evaluate.generate import sample
 from rljevf.ppo import PPOArgs, PPOTrainer, _maybe_sync
 from rljevf.registry import build_critic, build_reward
 from rljevf.resume import describe, find_resume
+from rljevf.guardrails import require_experiment_host
 
 
 def calibrate(critic, policy, tok, device, reward_fn, n: int, seed: int) -> dict:
@@ -69,7 +70,10 @@ def main() -> None:
     ap.add_argument("--lora-alpha", type=int, default=32)
     ap.add_argument("--resume", default="auto", choices=["auto", "off"])
     ap.add_argument("--save-every", type=int, default=25)
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("train_ppo")
 
     cfg = RunConfig(
         run_id=args.run_id, reward_source=args.reward, algo="ppo", critic=args.critic,

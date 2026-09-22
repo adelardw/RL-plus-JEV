@@ -26,6 +26,25 @@ documentation rather than from our own runs are labelled as such.
 | Reward-call budget cut 250 -> 180 steps | It is a controlled variable shared by every arm, so cutting it rescales all arms equally. Bought 3 seeds per arm inside budget instead of 2. |
 | SG2JEV is an ablation, not the pipeline | Static rubric is the only setting in which Jev, the RLAIF judge and the self-judge are comparable. Generated and policy-proposed rubrics are measured as an axis. |
 
+## Where things run
+
+**The laptop runs smoke tests only.** Every result that can reach the paper runs
+on Kaggle. This is enforced by `rljevf.guardrails.require_experiment_host`,
+called at the top of every experiment script, which refuses to start without
+CUDA unless `--smoke` is passed.
+
+It is enforced rather than remembered because it was already broken once: the
+first calibration study (n=128), a judge benchmark (n=300) and the probe-density
+study (n=15) were run on MPS, and one of them was still being quoted in the
+manuscript. MPS and CUDA are not comparable on throughput, dtype support or
+kernel behaviour, so their numbers cannot share a table -- and a long local job
+occupies a machine the user is working on.
+
+Laptop-derived results now live in `results/_laptop/`, which `make_tables.py`
+does not read, so quarantining a file reverts its table to a visible placeholder
+rather than leaving a laptop number in the paper. Both quarantined files are
+re-run in `jobs/week1_experiments.json`.
+
 ## Measured results
 
 ### Experiment 0 -- can each reward source recognise a human preference?
@@ -85,7 +104,9 @@ be answered with "use a bigger LLM judge".
 
 ### Sparse-probe bias (Propositions 1-2)
 n = 15 completions, probed every 4 tokens, sparse estimates rebuilt from the
-same probes so judge noise is excluded.
+same probes so judge noise is excluded. **Computed on the laptop and therefore
+quarantined**; re-running at n = 64, stride 2 on Kaggle. The numbers below are
+indicative only.
 
 | K | Mean error | Max error |
 |---|---|---|

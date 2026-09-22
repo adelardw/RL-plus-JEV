@@ -20,6 +20,7 @@ from pathlib import Path
 import torch
 
 from rljevf.config import supports_bf16
+from rljevf.guardrails import require_experiment_host
 
 
 def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm,
@@ -141,7 +142,10 @@ def main() -> None:
     ap.add_argument("--optims", default="adamw_torch,adafactor",
                     help="optimisers to try, cheapest state last")
     ap.add_argument("--out", default="/kaggle/working/results/gpu_benchmark.json")
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("gpu_benchmark")
 
     res = {"model": args.model, "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"}
 

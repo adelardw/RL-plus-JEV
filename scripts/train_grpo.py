@@ -18,6 +18,7 @@ from rljevf.config import RUN_ROOT, RunConfig, supports_bf16
 from rljevf.data import filter_by_prompt_tokens, fingerprint, rl_prompts
 from rljevf.registry import build_reward
 from rljevf.resume import describe, find_resume
+from rljevf.guardrails import require_experiment_host
 
 
 def main() -> None:
@@ -49,7 +50,10 @@ def main() -> None:
     ap.add_argument("--report-to", default="none")
     ap.add_argument("--resume", default="auto", choices=["auto", "off"],
                     help="continue an interrupted run from its saved state")
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("train_grpo")
 
     cfg = RunConfig(
         run_id=args.run_id, reward_source=args.reward, algo="grpo",

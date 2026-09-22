@@ -28,6 +28,7 @@ import torch
 from rljevf.data import preference_pairs
 from rljevf.jevclient import JevClient, Meter
 from rljevf.rubric import GENERAL_RUBRIC, build_state
+from rljevf.guardrails import require_experiment_host
 
 
 def per_pair_correct(chosen: Sequence[float], rejected: Sequence[float]) -> list[bool]:
@@ -63,7 +64,10 @@ def main() -> None:
                     help="comma-separated hosted judges read via logprobs")
     ap.add_argument("--max-chars", type=int, default=4000)
     ap.add_argument("--out", default="results/judge_benchmark.json")
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("judge_benchmark")
 
     ds = preference_pairs(n=args.n * 2, seed=7)
     rows = [ds[i] for i in range(len(ds))]

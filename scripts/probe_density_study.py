@@ -44,6 +44,7 @@ from rljevf.critic.jev_critic import JevCritic, _interp, probe_positions
 from rljevf.data import eval_prompts
 from rljevf.evaluate.generate import load_policy, sample
 from rljevf.jevclient import JevClient, Meter
+from rljevf.guardrails import require_experiment_host
 
 
 def sparse_estimate(dense: list[float], k: int) -> torch.Tensor:
@@ -84,7 +85,10 @@ def main() -> None:
     ap.add_argument("--ks", default="2,3,4,6,8,12,16")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="results/probe_density.json")
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("probe_density_study")
 
     ds = eval_prompts(n=args.n, seed=11)
     prompts = [ds[i]["prompt"] for i in range(len(ds))]

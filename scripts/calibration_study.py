@@ -35,6 +35,7 @@ from rljevf.data import eval_prompts
 from rljevf.evaluate.generate import load_policy, sample
 from rljevf.jevclient import JevClient, Meter
 from rljevf.rubric import GENERAL_RUBRIC, build_state
+from rljevf.guardrails import require_experiment_host
 
 
 def calibration_spread(probs: Sequence[float]) -> dict:
@@ -174,7 +175,10 @@ def main() -> None:
                     help="comma-separated: jev, api, local -- the same prefix "
                          "measurement run with different judges")
     ap.add_argument("--out", default="results/calibration_study.json")
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("calibration_study")
 
     ds = eval_prompts(n=args.n, seed=0)
     prompts = [ds[i]["prompt"] for i in range(len(ds))]

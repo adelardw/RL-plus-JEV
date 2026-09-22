@@ -26,6 +26,7 @@ from rljevf.evaluate.metrics import distinct_n, length_stats, self_praise_rate, 
 from rljevf.evaluate.winrate import win_rate
 from rljevf.jevclient import Meter
 from rljevf.orclient import ChatClient
+from rljevf.guardrails import require_experiment_host
 
 
 def main() -> None:
@@ -43,7 +44,10 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--skip-winrate", action="store_true")
     ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--smoke", action="store_true",
+                    help="allow running off-GPU to check the code path")
     args = ap.parse_args()
+    require_experiment_host("evaluate_run")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

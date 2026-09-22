@@ -153,6 +153,8 @@ def setup_rows() -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-live", action="store_true", help="do not call Jev for the properties table")
+    ap.add_argument("--force-live", action="store_true",
+                    help="measure Jev from here even without a GPU (not for the paper)")
     args = ap.parse_args()
     RESULTS.mkdir(exist_ok=True)
     arms = discover()
@@ -163,8 +165,18 @@ def main() -> None:
     (RESULTS / "sg2jev.json").write_text(json.dumps(group(arms, "sg2jev"), indent=1))
     (RESULTS / "cost.json").write_text(json.dumps(costs(arms), indent=1))
     (RESULTS / "setup.json").write_text(json.dumps(setup_rows(), indent=1))
+    # Latency and throughput depend on where they are measured, so the live
+    # probe only runs on an experiment host; elsewhere the table stays a
+    # placeholder rather than quietly acquiring a laptop's network round-trip.
     if not args.skip_live:
-        (RESULTS / "jev_properties.json").write_text(json.dumps(measure_jev_properties(), indent=1))
+        import torch
+
+        if torch.cuda.is_available() or args.force_live:
+            (RESULTS / "jev_properties.json").write_text(
+                json.dumps(measure_jev_properties(), indent=1))
+        else:
+            print("skipping the live Jev measurement: not on an experiment host "
+                  "(pass --force-live to override)")
     print("wrote results/*.json")
 
 
