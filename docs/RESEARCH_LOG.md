@@ -126,16 +126,42 @@ points at adaptive probe placement rather than larger K.
 | `kernels_logs_stream` | An unbounded live tail that restarts from the beginning after a dropped connection. Consume incrementally, de-duplicate by timestamp. |
 | Prices from a model-recommendation agent | Quoted `:batch` tier prices as standard. gpt-oss-120b is $0.15/$0.60, not $0.04/$0.18. Always confirm against `/api/v1/models`. |
 
+### Memory: why the policy is adapted, not fully fine-tuned
+`scripts/memory_budget.py` predicts VRAM from first principles and is validated
+against the OOM we actually hit: predicted 12.02 GB resident where 12.08 GB was
+observed, and the failing allocation predicted at 4.06 GB against 3.48 GB.
+
+For the 0.5B policy on a 14.6 GB T4, seq 896, 128 completions per step:
+
+| Term | GB |
+|---|---|
+| weights | 1.84 |
+| gradients | 1.84 |
+| AdamW moments | 3.68 |
+| separate reference policy | 1.84 |
+| rollout KV cache | 2.62 |
+| logits at micro-batch 8 | 4.06 |
+
+**Full fine-tuning does not fit at any micro-batch size** -- the first five
+terms already exceed the card. LoRA removes gradients, optimiser state and the
+reference copy at once (TRL sets `ref_model = None` under PEFT, verified at
+`grpo_trainer.py:975`, and takes the reference by disabling adapters), which
+brings micro-batch 8 to 10.1 GB. Every arm uses the same adapter config, so the
+comparison is unaffected; absolute numbers under full fine-tuning would differ.
+
+Settings adopted: LoRA r=16 on all attention and MLP projections, micro-batch 8,
+`adamw_torch`.
+
 ## Open problems
 
 1. **Policy scale is 0.5B.** The first question any reviewer asks. Not fixable
    on Kaggle: 2x T4 at 30 h/week is roughly 19 A100-hours per week, against the
    60-80 needed for 1.5B across six arms and three seeds. Removing this costs
    about $150 of rented A100 time; the user has declined for now.
-2. **PPO and GRPO both OOM at the study's own settings** on a T4. The benchmark
-   now searches downward for the largest micro-batch that fits and also varies
-   the optimiser, since Adam's state is 4 GB of 14.6 for a 0.5B model in fp32.
-   Unresolved until that benchmark completes.
+2. ~~**PPO and GRPO both OOM at the study's own settings.**~~ Resolved: the
+   cause was full fine-tuning, not the batch size, and LoRA fixes it. See
+   *Memory* above. The GPU benchmark still needs to confirm the predicted
+   settings and measure throughput.
 3. **No training run has happened yet.** All 22 are ahead.
 4. **Closed judge.** Jev's weights are unpublished and its behaviour may change
    between versions. Mitigated by pinning `jev-1.13`, recording the dated model

@@ -71,13 +71,25 @@ PPO_PROMPTS = 64
 PPO_CALLS = PPO_STEPS * PPO_PROMPTS                      # 9,600 reward calls
 PPO_PREFIXES = 6
 
+# Memory-derived settings (scripts/memory_budget.py, validated against an
+# observed OOM to within 0.5%): full fine-tuning of the 0.5B policy does not fit
+# on a 14.6GB T4 at ANY micro-batch size, because gradients, optimiser state and
+# the separate reference model together exceed the card before the logits are
+# allocated. LoRA removes all three at once -- TRL sets ref_model = None under
+# PEFT and takes the reference by disabling adapters -- and the same adapter
+# configuration is used by every arm, so the comparison is unaffected.
+LORA_R = 16
+MICRO_BS = 8
+
+
 def grpo_cmd(reward: str) -> str:
     """The GRPO command line. {seed}/{name}/{sft} stay as placeholders for Arm."""
     return (
         "scripts/train_grpo.py --run-id {name} --reward " + reward + " --sft {sft} "
         "--seed {seed} "
         f"--steps {GRPO_STEPS} --num-generations {GRPO_G} "
-        f"--prompts-per-step {GRPO_PROMPTS} --micro-bs 8 --max-completion-length 384"
+        f"--prompts-per-step {GRPO_PROMPTS} --micro-bs {MICRO_BS} "
+        f"--max-completion-length 384 --lora-r {LORA_R}"
     )
 
 
@@ -87,7 +99,7 @@ def ppo_cmd(critic: str) -> str:
         "--seed {seed} "
         f"--steps {PPO_STEPS} --batch-prompts {PPO_PROMPTS} "
         "--gen-bs 8 --micro-bs 4 --max-completion-length 384 "
-        f"--num-prefixes {PPO_PREFIXES} --calibration-n 96"
+        f"--num-prefixes {PPO_PREFIXES} --calibration-n 96 --lora-r {LORA_R}"
     )
 
 

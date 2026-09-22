@@ -115,9 +115,15 @@ class PPOTrainer:
             else "cpu"
         )
         self.policy = policy.to(self.device)
-        self.ref = ref_policy.to(self.device).eval()
-        for p in self.ref.parameters():
-            p.requires_grad_(False)
+        # A LoRA policy is its own reference: disabling the adapters recovers
+        # the base model, which removes a full second copy from VRAM.
+        self.peft_reference = ref_policy is None and hasattr(policy, "disable_adapter")
+        if self.peft_reference:
+            self.ref = None
+        else:
+            self.ref = ref_policy.to(self.device).eval()
+            for p in self.ref.parameters():
+                p.requires_grad_(False)
         self.tok = tokenizer
         self.reward_fn = reward_fn
         self.critic = critic
@@ -126,7 +132,8 @@ class PPOTrainer:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.callbacks = list(callbacks)
 
-        params = [{"params": self.policy.parameters(), "lr": args.learning_rate}]
+        trainable = [p for p in self.policy.parameters() if p.requires_grad]
+        params = [{"params": trainable, "lr": args.learning_rate}]
         if not self.external_critic:
             self.critic = critic.to(self.device)
             params.append(
@@ -241,7 +248,12 @@ class PPOTrainer:
 
         with torch.no_grad():
             old_logp = self._logprobs_chunked(self.policy, q_ids, q_mask, r_ids, r_mask)
-            ref_logp = self._logprobs_chunked(self.ref, q_ids, q_mask, r_ids, r_mask)
+            if self.peft_reference:
+                with self.policy.disable_adapter():
+                    ref_logp = self._logprobs_chunked(
+                        self.policy, q_ids, q_mask, r_ids, r_mask)
+            else:
+                ref_logp = self._logprobs_chunked(self.ref, q_ids, q_mask, r_ids, r_mask)
 
         t_rew = time.perf_counter()
         scores = torch.tensor(

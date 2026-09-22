@@ -382,6 +382,21 @@ that comparison exact.
 
 \input{tables/setup.tex}
 
+\paragraph{Why the policy is adapted rather than fully fine-tuned.} On the
+14.6\,GB card available, full fine-tuning of even a 0.5B policy does not fit at
+\emph{any} micro-batch size, and the reason is worth stating because it is not
+the one usually assumed. The weights are 1.8\,GB; the gradients are another
+1.8\,GB, the optimiser moments 3.7\,GB, the separate reference policy 1.8\,GB
+and the rollout KV cache 2.6\,GB --- together over the card before a single
+logit is allocated, and the logits for a 150k vocabulary are themselves
+4\,GB at a micro-batch of eight. LoRA removes three of those terms at once,
+since the reference policy becomes the base model with adapters disabled.
+Every arm uses an identical adapter configuration, so the comparison between
+reward sources is unaffected; absolute quality under full fine-tuning would
+differ, and we do not claim otherwise. Our memory model
+(\texttt{scripts/memory\_budget.py}) reproduces the observed failure to within
+0.5\,\% and is included so the calculation can be redone for other hardware.
+
 \subsection{Evaluation}
 \label{sec:eval}
 \paragraph{Quality.} Head-to-head win-rate against the SFT checkpoint on held-out

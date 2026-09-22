@@ -65,6 +65,8 @@ def main() -> None:
     ap.add_argument("--calibration-n", type=int, default=64)
     ap.add_argument("--n-prompts", type=int, default=8192)
     ap.add_argument("--reward-call-budget", type=int, default=None)
+    ap.add_argument("--lora-r", type=int, default=0)
+    ap.add_argument("--lora-alpha", type=int, default=32)
     ap.add_argument("--resume", default="auto", choices=["auto", "off"])
     ap.add_argument("--save-every", type=int, default=25)
     args = ap.parse_args()
@@ -92,8 +94,19 @@ def main() -> None:
         tok.pad_token = tok.eos_token
 
     policy = AutoModelForCausalLM.from_pretrained(args.sft, dtype=dtype)
-    ref = AutoModelForCausalLM.from_pretrained(args.sft, dtype=dtype)
     policy.config.use_cache = False
+    if args.lora_r > 0:
+        from peft import LoraConfig, get_peft_model
+
+        policy = get_peft_model(policy, LoraConfig(
+            r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=0.0,
+            bias="none", task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"]))
+        policy.print_trainable_parameters()
+        ref = None            # adapters are disabled to get the reference
+    else:
+        ref = AutoModelForCausalLM.from_pretrained(args.sft, dtype=dtype)
 
     reward_fn, source = build_reward(cfg, policy=policy, tokenizer=tok)
     critic = build_critic(cfg, policy=policy, tokenizer=tok)

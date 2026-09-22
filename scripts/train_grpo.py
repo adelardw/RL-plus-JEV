@@ -32,6 +32,12 @@ def main() -> None:
     ap.add_argument("--num-generations", type=int, default=8)
     ap.add_argument("--prompts-per-step", type=int, default=16)
     ap.add_argument("--micro-bs", type=int, default=8)
+    ap.add_argument("--lora-r", type=int, default=0,
+                    help="LoRA rank; 0 means full fine-tuning. On a T4 full "
+                         "fine-tuning of a 0.5B policy does not fit at any "
+                         "batch size (see scripts/memory_budget.py)")
+    ap.add_argument("--lora-alpha", type=int, default=32)
+    ap.add_argument("--lora-dropout", type=float, default=0.0)
     ap.add_argument("--optim", default="adamw_torch",
                     help="adamw_torch | adafactor | adamw_bnb_8bit -- the optimiser's\n"
                          "state is 4GB of a T4 for a 0.5B model in fp32")
@@ -102,10 +108,30 @@ def main() -> None:
         report_to=[] if args.report_to == "none" else [args.report_to],
     )
 
+    peft_config = None
+    if args.lora_r > 0:
+        from peft import LoraConfig
+
+        # With PEFT, TRL sets ref_model = None and computes the reference
+        # logprobs by disabling adapters, so this removes the second copy of
+        # the policy as well as the optimiser state.
+        peft_config = LoraConfig(
+            r=args.lora_r, lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout, bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+        )
+        print(f"LoRA r={args.lora_r} alpha={args.lora_alpha}", flush=True)
+
     trainer = GRPOTrainer(
         model=model, reward_funcs=reward_fn, args=gcfg,
-        train_dataset=ds, processing_class=tok,
+        train_dataset=ds, processing_class=tok, peft_config=peft_config,
     )
+    if peft_config is not None:
+        tr = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        tot = sum(p.numel() for p in trainer.model.parameters())
+        print(f"trainable {tr/1e6:.1f}M of {tot/1e6:.1f}M ({100*tr/tot:.2f}%)", flush=True)
 
     # TRL's Trainer restores weights, optimiser, LR schedule and global step
     # from a checkpoint directory, so an interrupted run continues rather than

@@ -1259,6 +1259,27 @@ wheels = [
 ]
 
 [[package]]
+name = "peft"
+version = "0.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "accelerate" },
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "psutil" },
+    { name = "pyyaml" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4f/91/56cc2b1b6824f5a4026750274240f26cd23465fb1a29cd14772d555433f2/peft-0.21.0.tar.gz", hash = "sha256:17f2b5a264439f4cd983c02e95954f2e948e3bcb85f75895ee307f94a55fd28f", size = 978334, upload-time = "2026-09-15T13:34:02.583Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/f0/29c37002f5ef5cb5be54890114d5c8f726f0cb5072a8ba0880758c912bfd/peft-0.21.0-py3-none-any.whl", hash = "sha256:b64eb75fd9dece7401c70e675b8d9de024993b70483691b41c62876f0c7809b7", size = 832883, upload-time = "2026-09-15T13:33:59.775Z" },
+]
+
+[[package]]
 name = "platformdirs"
 version = "4.11.12"
 source = { registry = "https://pypi.org/simple" }
@@ -1674,6 +1695,7 @@ dependencies = [
     { name = "datasets" },
     { name = "httpx" },
     { name = "kaggle" },
+    { name = "peft" },
     { name = "python-dotenv" },
     { name = "torch" },
     { name = "transformers" },
@@ -1691,6 +1713,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=5.0.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "kaggle", specifier = ">=2.2.4" },
+    { name = "peft", specifier = ">=0.21.0" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "torch", specifier = ">=2.14.0" },
     { name = "transformers", specifier = ">=5.17.0" },
