@@ -30,6 +30,8 @@ def bench_grpo(model_name, steps, G, max_new, use_vllm,
 
     from rljevf.data import filter_by_prompt_tokens, rl_prompts
 
+    probe = MemoryProbe()
+    probe.mark("start")
     tok = AutoTokenizer.from_pretrained(model_name)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
@@ -37,6 +39,7 @@ def bench_grpo(model_name, steps, G, max_new, use_vllm,
     bf16 = supports_bf16()
     model = AutoModelForCausalLM.from_pretrained(
         model_name, dtype=torch.bfloat16 if bf16 else torch.float32)
+    probe.mark("policy loaded")
 
     def rew(prompts, completions, **kw):   # TRL passes prompts= by keyword
         return [float(len(c)) / 1000 for c in completions]
@@ -66,14 +69,20 @@ def bench_grpo(model_name, steps, G, max_new, use_vllm,
                      train_dataset=ds, processing_class=tok,
                      peft_config=peft_config)
     build = time.perf_counter() - t
+    probe.mark("trainer built (+reference)")
     t = time.perf_counter()
-    tr.train()
+    try:
+        tr.train()
+    except torch.cuda.OutOfMemoryError:
+        probe.mark("at OOM")
+        raise
     total = time.perf_counter() - t
+    probe.mark("after training")
     peak = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0
     return {"build_s": round(build, 1), "total_s": round(total, 1),
             "s_per_step": round(total / steps, 2), "peak_vram_gb": round(peak, 2),
             "completions_per_step": gen_bs, "use_vllm": use_vllm,
-            "optim": optim, "lora_r": lora_r}
+            "optim": optim, "lora_r": lora_r, "vram_phases": probe.report()}
 
 
 def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs,
@@ -122,6 +131,36 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs,
             "step_times": [h["step_time_s"] for h in hist]}
 
 
+
+class MemoryProbe:
+    """Record VRAM at each phase, so an OOM names its cause.
+
+    Four rounds of guessing produced three wrong explanations for the same
+    failure -- the micro-batch, then the optimiser, then the KV cache, each
+    ruled out only by the next experiment. Measuring per phase replaces the
+    guessing: whatever is resident when generation starts is printed, not
+    inferred.
+    """
+
+    def __init__(self):
+        self.marks: list[tuple[str, float, float]] = []
+
+    def mark(self, phase: str) -> None:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        alloc = torch.cuda.memory_allocated() / 2**30
+        reserved = torch.cuda.memory_reserved() / 2**30
+        self.marks.append((phase, round(alloc, 2), round(reserved, 2)))
+        print(f"    [vram] {phase:28s} allocated {alloc:5.2f} GB  "
+              f"reserved {reserved:5.2f} GB", flush=True)
+
+    def report(self) -> list[dict]:
+        return [{"phase": p, "allocated_gb": a, "reserved_gb": r}
+                for p, a, r in self.marks]
+
+
 def autofit(fn, label: str, configs: list[dict], **kw) -> dict:
     """Search the configurations that actually control memory, in order.
 
@@ -148,7 +187,12 @@ def autofit(fn, label: str, configs: list[dict], **kw) -> dict:
         except torch.cuda.OutOfMemoryError as e:
             print(f"  {label}: {cfg} OOM ({str(e)[:70]})", flush=True)
             if torch.cuda.is_available():
+                print(f"    [vram] at failure: allocated "
+                      f"{torch.cuda.memory_allocated()/2**30:.2f} GB, reserved "
+                      f"{torch.cuda.memory_reserved()/2**30:.2f} GB, peak "
+                      f"{torch.cuda.max_memory_allocated()/2**30:.2f} GB", flush=True)
                 torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
         except Exception as e:  # noqa: BLE001
             return {"error": f"{type(e).__name__}: {e}", **cfg, "fit": False}
     return {"error": "no configuration fitted", "fit": False,
