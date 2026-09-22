@@ -152,3 +152,51 @@ Pinned because they cost debugging time:
 - TRL detects async reward functions with `inspect.iscoroutinefunction`, which
   is `False` for an instance with an `async __call__`. `registry.py` wraps the
   Jev source in a real coroutine function so it runs on TRL's async loop.
+
+## Session robustness
+
+A Kaggle session is killed at 12 hours and can be pre-empted before that, so
+the study is built to survive interruption rather than to hope against it.
+
+**Session budget.** The plan's `session_seconds` (10.5h) stops the runner
+before the 12h wall, and `reserve_seconds` (20 min) is held back so artifacts
+are always packaged. This matters because Kaggle commits `/kaggle/working`
+only when the kernel exits cleanly -- a killed session loses its output.
+
+**Per-job guard** (`scripts/guard.py`, wrapped around every job). Enforces a
+hard timeout, aborts a job that has printed nothing for too long, aborts
+before the working disk fills, and logs elapsed time / RSS / VRAM / free disk
+on a heartbeat. On any of these it sends SIGTERM and gives the child a grace
+period to checkpoint before SIGKILL. Exit codes are distinguishable:
+124 timeout, 125 silence, 123 disk, 126 signal.
+
+**Checkpoint and resume.** Both trainers save *complete* state -- weights,
+optimiser moments, step counter, LR schedule, RNG states, the reward-call
+meter and the run history -- and both install a SIGTERM handler so the guard's
+grace period is used to checkpoint. The directory is called `resume_state`,
+never `checkpoint-*`, because the runner deletes that glob. On start,
+`rljevf/resume.py` searches the working directory and every mounted dataset
+for a usable state; a half-written one is rejected rather than loaded.
+The prompt schedule is a pure function of `(seed, step)`, so a resumed run
+sees exactly the data an uninterrupted one would.
+
+**Verified download.** `scripts/package_artifacts.py` writes MANIFEST.json
+with a sha256 per file; `scripts/fetch_artifacts.py` re-downloads and checks
+every file against it, retrying, and fails loudly rather than leaving a
+silently truncated file to corrupt the analysis.
+
+**Across sessions.** `scripts/orchestrate.py` waits for the session, fetches
+and verifies, lifts `resume_state` into `state/` (shipped back in the code
+dataset), and writes the next plan with finished jobs marked `done` so they
+are skipped. A failed job is retried in the next batch by default.
+
+**Live monitoring.** `scripts/watch_kaggle.py` streams the session log and
+emits one line per event worth acting on (JOB / GUARD / ERROR / SPEND /
+STATUS), so a stuck job surfaces while the GPU quota can still be saved.
+
+### The one manual step
+Pushing a kernel version drops its Kaggle secret attachment, and the API has
+no field to set one (`ApiSaveKernelRequest` has none). So the runner kernel is
+pushed **once**, its work comes from `jobs/active.json` in the code dataset,
+and starting a batch is a click on "Save & Run All". Updating the dataset does
+not touch the kernel, so the attachment survives between batches.

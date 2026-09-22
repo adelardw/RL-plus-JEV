@@ -29,6 +29,7 @@ from rljevf.data import filter_by_prompt_tokens, fingerprint, rl_prompts
 from rljevf.evaluate.generate import sample
 from rljevf.ppo import PPOArgs, PPOTrainer, _maybe_sync
 from rljevf.registry import build_critic, build_reward
+from rljevf.resume import describe, find_resume
 
 
 def calibrate(critic, policy, tok, device, reward_fn, n: int, seed: int) -> dict:
@@ -63,6 +64,8 @@ def main() -> None:
     ap.add_argument("--calibration-n", type=int, default=64)
     ap.add_argument("--n-prompts", type=int, default=8192)
     ap.add_argument("--reward-call-budget", type=int, default=None)
+    ap.add_argument("--resume", default="auto", choices=["auto", "off"])
+    ap.add_argument("--save-every", type=int, default=25)
     args = ap.parse_args()
 
     cfg = RunConfig(
@@ -112,6 +115,7 @@ def main() -> None:
         generation_batch_size=args.gen_bs,
         max_completion_length=args.max_completion_length,
         max_steps=args.steps, seed=args.seed,
+        save_every=args.save_every,
         reward_call_budget=args.reward_call_budget,
     )
 
@@ -119,6 +123,11 @@ def main() -> None:
         policy=policy, ref_policy=ref, tokenizer=tok, reward_fn=reward_fn,
         critic=critic, args=pargs, train_dataset=ds, out_dir=out, device=device,
     )
+
+    ckpt = find_resume(args.run_id, out) if args.resume == "auto" else None
+    print(describe(ckpt), flush=True)
+    if ckpt is not None:
+        trainer.load_checkpoint(ckpt)
     trainer.train()
 
     stats = {

@@ -1,0 +1,49 @@
+{
+ "created_at": "2026-09-22T09:41:06Z",
+ "n_files": 8,
+ "total_bytes": 211627,
+ "kept_checkpoints": [],
+ "dropped_checkpoints": [],
+ "files": [
+  {
+   "path": "calibration_study.completions.json",
+   "bytes": 196547,
+   "sha256": "c220919f855174f750755836a43542c47bd6fcdfba342e71a4014a51937c3acf"
+  },
+  {
+   "path": "calibration_study.json",
+   "bytes": 12950,
+   "sha256": "4714f6795eed840f5a4f6ad28db24f0e32a92f5ebc2f4d433c0b0efe5e3edb83"
+  },
+  {
+   "path": "cost.json",
+   "bytes": 15,
+   "sha256": "ff294168057958276d2c94f2e0f2da4af46b8f0ff20ce1ee72b9af31af1e4f68"
+  },
+  {
+   "path": "grpo_main.json",
+   "bytes": 15,
+   "sha256": "a15af745224564d106844bdeb3df2e0fdd619f4fa4ac3cb53c613ab85baf9d5c"
+  },
+  {
+   "path": "jev_properties.json",
+   "bytes": 839,
+   "sha256": "b7780542a01e23561837e4fbead9cd073a5b6746a87426cc7c3b97e932e042c2"
+  },
+  {
+   "path": "ppo_main.json",
+   "bytes": 15,
+   "sha256": "a15af745224564d106844bdeb3df2e0fdd619f4fa4ac3cb53c613ab85baf9d5c"
+  },
+  {
+   "path": "setup.json",
+   "bytes": 1231,
+   "sha256": "3f8d1d89a6cda88eae47e19b5b90c44d27f945072a02306d135331d4dc48a097"
+  },
+  {
+   "path": "sg2jev.json",
+   "bytes": 15,
+   "sha256": "a15af745224564d106844bdeb3df2e0fdd619f4fa4ac3cb53c613ab85baf9d5c"
+  }
+ ]
+}

@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
-CODE_DIRS = ["rljevf", "scripts", "jobs"]
+CODE_DIRS = ["rljevf", "scripts", "jobs", "state"]
 CODE_FILES = ["pyproject.toml"]
 RUNNER_SLUG = "rljevf-runner"
 CODE_SLUG = "rljevf-code"
@@ -55,18 +55,34 @@ def _username() -> str:
 # --------------------------------------------------------------------------- #
 #  The runner kernel. Its source is fixed; the work comes from the dataset.
 # --------------------------------------------------------------------------- #
-RUNNER_SOURCE = '''# rljevf runner -- pushed once, never edited.
-# The work it performs comes from jobs/active.json inside the mounted code
-# dataset, so new batches need a dataset update, not a kernel push (a push
-# would drop the OPEN_ROUTER_API_KEY secret attachment).
-import json, os, pathlib, shutil, subprocess, sys, time
+# Raw: the kernel source contains \n escapes that must reach the generated
+# file intact rather than being interpreted when this module is imported.
+RUNNER_SOURCE = r'''# rljevf runner -- pushed ONCE and never again.
+#
+# Pushing a kernel version drops its Kaggle secret attachment, so this source
+# must not change. Everything variable lives in jobs/active.json inside the
+# mounted code dataset, and a dataset update does not touch the kernel.
+#
+# What it handles:
+#   * the 12h session wall -- stops at the plan's session_seconds (10.5h) and
+#     always reserves time to package artifacts, because Kaggle only commits
+#     /kaggle/working when the kernel exits cleanly;
+#   * resume -- jobs already completed in a previous session are skipped, and
+#     training scripts find their own resume_state under /kaggle/input;
+#   * a missing secret -- jobs that do not need the API still run;
+#   * connectivity -- checked with retries before anything expensive starts.
+import json, os, pathlib, shutil, subprocess, sys, time, urllib.request
 
 T0 = time.time()
 WORK = "/kaggle/working"
 os.environ["RLJEVF_RUN_ROOT"] = WORK + "/runs"
 os.environ["RLJEVF_CACHE_ROOT"] = WORK + "/cache"
+os.environ["RLJEVF_WORK"] = WORK
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+def elapsed():
+    return time.time() - T0
 
 def find_code():
     for p in sorted(pathlib.Path("/kaggle/input").rglob("rljevf/config.py")):
@@ -88,9 +104,31 @@ print("plan:", plan.get("name"), "written", plan.get("written_at"), flush=True)
 print("jobs:", [j["name"] for j in plan["jobs"]], flush=True)
 
 os.environ["RLJEVF_BUDGET_USD"] = str(plan.get("budget_usd", 30.0))
-BUDGET_S = float(plan.get("session_seconds", 5.0 * 3600))
+# Kaggle kills the session at 12h; stop well before and keep time to package.
+BUDGET_S = float(plan.get("session_seconds", 37800))
+RESERVE_S = float(plan.get("reserve_seconds", 1200))
+ALREADY_DONE = set(plan.get("done", []))
+if ALREADY_DONE:
+    print("already done in earlier sessions:", sorted(ALREADY_DONE), flush=True)
 
-# secret -------------------------------------------------------------------
+# -- connectivity ----------------------------------------------------------
+def reachable(url, tries=5):
+    for i in range(tries):
+        try:
+            urllib.request.urlopen(url, timeout=25)
+            return True
+        except Exception as e:
+            print(f"  {url}: attempt {i+1}/{tries} failed ({type(e).__name__})", flush=True)
+            time.sleep(min(30, 3 * (i + 1)))
+    return False
+
+net = {u: reachable(u) for u in ("https://openrouter.ai/api/v1/models",
+                                 "https://huggingface.co/api/models?limit=1")}
+print("connectivity:", net, flush=True)
+if not all(net.values()):
+    print("WARNING: some endpoints unreachable; jobs needing them will fail", flush=True)
+
+# -- secret ----------------------------------------------------------------
 key = ""
 try:
     from kaggle_secrets import UserSecretsClient
@@ -98,60 +136,84 @@ try:
     print("secret: loaded (len %d)" % len(key), flush=True)
 except Exception as e:
     print("secret: FAILED -", type(e).__name__, e, flush=True)
-if not key:
-    raise SystemExit(
-        "No OPEN_ROUTER_API_KEY. Open this kernel, Add-ons -> Secrets, attach "
-        "OPEN_ROUTER_API_KEY, then Save & Run All."
-    )
-os.environ["OPEN_ROUTER_API_KEY"] = key
+if key:
+    os.environ["OPEN_ROUTER_API_KEY"] = key
+else:
+    print("NOTE: no OPEN_ROUTER_API_KEY. Attach it under Add-ons -> Secrets on "
+          "this kernel and Save & Run All. Jobs marked needs_api will be skipped.",
+          flush=True)
 
-# deps ---------------------------------------------------------------------
+# -- deps ------------------------------------------------------------------
 pips = plan.get("pip", [])
 if pips:
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", *pips], check=False)
+    for attempt in range(3):
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", *pips])
+        if r.returncode == 0:
+            break
+        print(f"pip install failed (attempt {attempt+1}/3), retrying", flush=True)
+        time.sleep(15)
 
 import torch
 print("torch", torch.__version__, "| cuda", torch.cuda.is_available(),
       "|", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "",
-      "| bf16", torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
-      flush=True)
+      "| gpus", torch.cuda.device_count(), flush=True)
 
-# run ----------------------------------------------------------------------
-state = {"plan": plan.get("name"), "completed": [], "failed": [], "skipped": []}
+# -- run -------------------------------------------------------------------
+state = {"plan": plan.get("name"), "session_budget_s": BUDGET_S,
+         "completed": [], "failed": [], "skipped": [], "connectivity": net,
+         "had_secret": bool(key)}
 state_path = pathlib.Path(WORK) / "runner_state.json"
 
 def save_state():
-    state["elapsed_s"] = round(time.time() - T0, 1)
+    state["elapsed_s"] = round(elapsed(), 1)
     state_path.write_text(json.dumps(state, indent=1))
-
-for job in plan["jobs"]:
-    left = BUDGET_S - (time.time() - T0)
-    need = float(job.get("est_seconds", 0))
-    if left < max(300.0, need * 0.5):
-        print(f"SKIP {job['name']}: {left/60:.1f} min left, needs ~{need/60:.1f} min",
-              flush=True)
-        state["skipped"].append(job["name"])
-        continue
-    cmd = [sys.executable, "-u"] + job["command"].split()
-    print(f"\\n=== {job['name']} ({left/60:.0f} min of session left) ===",
-          flush=True)
-    print(">>", " ".join(cmd), flush=True)
-    t = time.time()
-    r = subprocess.run(cmd, cwd=str(CODE))
-    dt = round(time.time() - t, 1)
-    rec = {"name": job["name"], "seconds": dt, "returncode": r.returncode}
-    (state["completed"] if r.returncode == 0 else state["failed"]).append(rec)
-    print(f"=== {job['name']} -> rc={r.returncode} in {dt/60:.1f} min ===", flush=True)
-    save_state()
 
 save_state()
 
-# Keep the output small: intermediate checkpoints are not worth the transfer.
-for p in pathlib.Path(WORK + "/runs").rglob("checkpoint-*"):
-    if p.is_dir():
-        shutil.rmtree(p, ignore_errors=True)
+for job in plan["jobs"]:
+    name = job["name"]
+    if name in ALREADY_DONE:
+        print(f"SKIP {name}: completed in an earlier session", flush=True)
+        state["skipped"].append({"name": name, "why": "already done"})
+        continue
+    if job.get("needs_api", True) and not key:
+        print(f"SKIP {name}: needs the API and no secret is attached", flush=True)
+        state["skipped"].append({"name": name, "why": "no secret"})
+        continue
+    left = BUDGET_S - elapsed() - RESERVE_S
+    need = float(job.get("est_seconds", 0))
+    if left < max(300.0, need * 0.4):
+        print(f"SKIP {name}: {left/60:.1f} min usable, needs ~{need/60:.1f} min",
+              flush=True)
+        state["skipped"].append({"name": name, "why": "out of session time"})
+        continue
 
-print("\\nSTATE:", json.dumps(state, indent=1), flush=True)
+    print(f"\n=== {name} ({left/60:.0f} min usable of session) ===", flush=True)
+    cmd = [sys.executable, "-u"] + job["command"].split()
+    print(">>", " ".join(cmd), flush=True)
+    t = time.time()
+    try:
+        rc = subprocess.run(cmd, cwd=str(CODE)).returncode
+    except Exception as e:
+        print("launch error:", type(e).__name__, e, flush=True)
+        rc = 1
+    dt = round(time.time() - t, 1)
+    rec = {"name": name, "seconds": dt, "returncode": rc}
+    (state["completed"] if rc == 0 else state["failed"]).append(rec)
+    print(f"=== {name} -> rc={rc} in {dt/60:.1f} min ===", flush=True)
+    save_state()
+
+# -- package ---------------------------------------------------------------
+# Always, even after failures: this is what makes the session downloadable.
+print(f"\n=== packaging artifacts ({elapsed()/60:.0f} min elapsed) ===", flush=True)
+try:
+    subprocess.run([sys.executable, "-u", "scripts/package_artifacts.py"],
+                   cwd=str(CODE), timeout=RESERVE_S)
+except Exception as e:
+    print("packaging error:", type(e).__name__, e, flush=True)
+
+save_state()
+print("\nSTATE:", json.dumps(state, indent=1), flush=True)
 sys.exit(1 if state["failed"] else 0)
 '''
 

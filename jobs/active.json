@@ -1,32 +1,38 @@
 {
  "name": "week0-benchmark",
- "budget_usd": 2.0,
- "session_seconds": 9000,
- "pip": ["trl==1.13.0", "transformers==5.17.0", "datasets==5.0.1", "httpx"],
+ "budget_usd": 3.0,
+ "session_seconds": 37800,
+ "pip": [
+  "trl==1.13.0",
+  "transformers==5.17.0",
+  "datasets==5.0.1",
+  "httpx"
+ ],
  "jobs": [
   {
    "name": "selftest",
-   "command": "scripts/kaggle_selftest.py",
-   "est_seconds": 420,
-   "why": "proves the environment, the secret, Jev reachability and throughput before anything expensive"
+   "command": "scripts/guard.py --name selftest --timeout 900 --silence-timeout 420 --heartbeat 60 -- scripts/kaggle_selftest.py",
+   "est_seconds": 600,
+   "why": "environment, secret, Jev reachability and throughput before anything expensive"
   },
   {
    "name": "gpu-benchmark",
-   "command": "scripts/gpu_benchmark.py --steps 5 --grpo-prompts 16 --grpo-g 8 --ppo-prompts 64 --max-new 384 --micro-bs 8 --gen-bs 16 --skip-vllm",
-   "est_seconds": 1500,
-   "why": "seconds per step for GRPO and PPO at the real settings, so the weekly batches can be sized honestly"
+   "command": "scripts/guard.py --name gpu-benchmark --timeout 3000 --silence-timeout 900 --heartbeat 120 -- scripts/gpu_benchmark.py --steps 5 --grpo-prompts 16 --grpo-g 8 --ppo-prompts 64 --max-new 384 --micro-bs 8 --gen-bs 16 --skip-vllm --out /kaggle/working/results/gpu_benchmark.json",
+   "est_seconds": 1800,
+   "why": "seconds per step for GRPO and PPO at the real settings, so the study can be scheduled from measurement"
   },
   {
    "name": "judge-benchmark",
-   "command": "scripts/judge_benchmark.py --n 300 --judges Qwen/Qwen2.5-1.5B-Instruct,Qwen/Qwen2.5-3B-Instruct,Qwen/Qwen2.5-7B-Instruct --out /kaggle/working/results/judge_benchmark.json",
-   "est_seconds": 2400,
-   "why": "picks the RLAIF judge on evidence: the smallest judge that actually separates chosen from rejected"
+   "command": "scripts/guard.py --name judge-benchmark --timeout 5400 --silence-timeout 1200 --heartbeat 120 -- scripts/judge_benchmark.py --n 300 --judges Qwen/Qwen2.5-1.5B-Instruct,Qwen/Qwen2.5-3B-Instruct,Qwen/Qwen2.5-7B-Instruct --out /kaggle/working/results/judge_benchmark.json",
+   "est_seconds": 3600,
+   "why": "picks the RLAIF judge on evidence: the smallest judge that separates chosen from rejected"
   },
   {
    "name": "calibration-study",
-   "command": "scripts/calibration_study.py --n 256 --max-new-tokens 256 --out /kaggle/working/results/calibration_study.json",
-   "est_seconds": 1800,
-   "why": "the paper's Experiment 1: is Jev's prefix probability a value function?"
+   "command": "scripts/guard.py --name calibration-study --timeout 3600 --silence-timeout 900 --heartbeat 120 -- scripts/calibration_study.py --n 256 --max-new-tokens 256 --out /kaggle/working/results/calibration_study.json",
+   "est_seconds": 2400,
+   "why": "Experiment 1 at full size: is Jev's prefix probability a value function?"
   }
- ]
+ ],
+ "written_at": "2026-09-22T09:39:43Z"
 }

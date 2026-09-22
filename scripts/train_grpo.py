@@ -16,6 +16,7 @@ from trl import GRPOConfig, GRPOTrainer
 from rljevf.config import RUN_ROOT, RunConfig, supports_bf16
 from rljevf.data import filter_by_prompt_tokens, fingerprint, rl_prompts
 from rljevf.registry import build_reward
+from rljevf.resume import describe, find_resume
 
 
 def main() -> None:
@@ -36,6 +37,8 @@ def main() -> None:
     ap.add_argument("--n-prompts", type=int, default=8192)
     ap.add_argument("--reward-call-budget", type=int, default=None)
     ap.add_argument("--report-to", default="none")
+    ap.add_argument("--resume", default="auto", choices=["auto", "off"],
+                    help="continue an interrupted run from its saved state")
     args = ap.parse_args()
 
     cfg = RunConfig(
@@ -98,14 +101,47 @@ def main() -> None:
         model=model, reward_funcs=reward_fn, args=gcfg,
         train_dataset=ds, processing_class=tok,
     )
-    trainer.train()
+
+    # TRL's Trainer restores weights, optimiser, LR schedule and global step
+    # from a checkpoint directory, so an interrupted run continues rather than
+    # silently restarting and double-spending the reward budget.
+    ckpt = find_resume(args.run_id, out) if args.resume == "auto" else None
+    print(describe(ckpt), flush=True)
+    trainer.train(resume_from_checkpoint=str(ckpt) if ckpt else None)
     trainer.save_model(str(out / "final"))
     tok.save_pretrained(str(out / "final"))
+    _stash_resume_state(out)
 
     stats = source.stats() if source is not None else {}
     (out / "reward_source_stats.json").write_text(json.dumps(stats, indent=1))
     print("reward source stats:", json.dumps(stats, indent=1))
     print("saved ->", out / "final")
+
+
+def _stash_resume_state(out: Path) -> None:
+    """Move the newest TRL checkpoint to `resume_state`, out of the glob the
+    Kaggle runner deletes, and drop the older ones."""
+    import shutil
+
+    cks = [d for d in out.glob("checkpoint-*") if d.is_dir()]
+    if not cks:
+        return
+
+    def step(d: Path) -> int:
+        try:
+            return int(d.name.split("-")[-1])
+        except ValueError:
+            return -1
+
+    newest = max(cks, key=step)
+    target = out / "resume_state"
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    shutil.move(str(newest), str(target))
+    for d in cks:
+        if d != newest and d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+    print(f"resume state stashed -> {target}", flush=True)
 
 
 if __name__ == "__main__":

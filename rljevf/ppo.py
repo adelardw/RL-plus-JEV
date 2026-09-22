@@ -14,14 +14,14 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 from .critic.jev_critic import JevCritic, LearnedValueCritic
 
@@ -119,17 +119,25 @@ class PPOTrainer:
             )
         self.opt = torch.optim.AdamW(params)
 
-        g = torch.Generator().manual_seed(args.seed)
-        self.loader = DataLoader(
-            train_dataset,
-            batch_size=args.batch_prompts,
-            shuffle=True,
-            generator=g,
-            collate_fn=lambda b: [x["prompt"] for x in b],
-            drop_last=True,
-        )
+        # A fixed permutation indexed by step, rather than a DataLoader
+        # iterator: the batch for step k is a pure function of (seed, k), so a
+        # resumed run sees exactly the data an uninterrupted one would, and
+        # every arm sees the same prompts in the same order.
+        self.dataset = train_dataset
+        self.prompt_order = torch.randperm(
+            len(train_dataset), generator=torch.Generator().manual_seed(args.seed)
+        ).tolist()
         self.history: list[dict] = []
         self.reward_calls = 0
+        self.step_idx = 0
+        self._interrupted = False
+
+    def batch_for_step(self, step: int) -> list[str]:
+        n = len(self.prompt_order)
+        bs = self.args.batch_prompts
+        start = (step * bs) % n
+        idx = [self.prompt_order[(start + i) % n] for i in range(bs)]
+        return [self.dataset[i]["prompt"] for i in idx]
 
     # -- rollout -------------------------------------------------------------
     @torch.no_grad()
@@ -313,14 +321,10 @@ class PPOTrainer:
     # -- loop ----------------------------------------------------------------
     def train(self) -> list[dict]:
         a = self.args
-        step = 0
-        it = iter(self.loader)
-        while step < a.max_steps:
-            try:
-                prompts = next(it)
-            except StopIteration:
-                it = iter(self.loader)
-                prompts = next(it)
+        self._install_signal_handlers()
+        while self.step_idx < a.max_steps:
+            step = self.step_idx
+            prompts = self.batch_for_step(step)
             rec = self.step(prompts)
             rec["step"] = step
             self.history.append(rec)
@@ -333,14 +337,137 @@ class PPOTrainer:
                     f"vf={rec['vf_loss']:.4f} t={rec['step_time_s']:.1f}s",
                     flush=True,
                 )
-            if a.save_every and step and step % a.save_every == 0:
-                self.save(f"checkpoint-{step}")
-            step += 1
+            self.step_idx = step + 1
+            if a.save_every and self.step_idx % a.save_every == 0:
+                self.save_checkpoint()
+            if self._interrupted:
+                print("interrupted -- checkpointing and stopping", flush=True)
+                self.save_checkpoint()
+                return self.history
             if a.reward_call_budget and self.reward_calls >= a.reward_call_budget:
                 print(f"reward-call budget reached ({self.reward_calls})", flush=True)
                 break
         self.save("final")
+        self.save_checkpoint()
         return self.history
+
+    # -- interruption --------------------------------------------------------
+    def _install_signal_handlers(self) -> None:
+        """The guard sends SIGTERM and waits; use that window to checkpoint
+        rather than losing the run."""
+        import signal
+
+        def on_term(signum, _frame):
+            print(f"\nreceived signal {signum}: will checkpoint after this step",
+                  flush=True)
+            self._interrupted = True
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, on_term)
+            except ValueError:
+                pass  # not on the main thread
+
+    # -- full state ----------------------------------------------------------
+    def _rng_state(self) -> dict:
+        import random
+
+        st = {"python": random.getstate(), "torch": torch.get_rng_state()}
+        if torch.cuda.is_available():
+            st["cuda"] = torch.cuda.get_rng_state_all()
+        try:
+            import numpy as np
+
+            st["numpy"] = np.random.get_state()
+        except ImportError:
+            pass
+        return st
+
+    def _load_rng(self, st: dict) -> None:
+        import random
+
+        try:
+            random.setstate(st["python"])
+            torch.set_rng_state(st["torch"].cpu() if hasattr(st["torch"], "cpu") else st["torch"])
+            if torch.cuda.is_available() and "cuda" in st:
+                torch.cuda.set_rng_state_all([x.cpu() for x in st["cuda"]])
+            if "numpy" in st:
+                import numpy as np
+
+                np.random.set_state(st["numpy"])
+        except Exception as e:  # noqa: BLE001
+            print(f"warning: could not restore RNG state ({e}); "
+                  f"the resumed run is not bit-identical", flush=True)
+
+    def save_checkpoint(self, name: str = "resume_state") -> Path:
+        """Everything needed to continue: weights, optimiser, step counter,
+        RNG, the reward-call meter and the history.
+
+        Deliberately NOT called `checkpoint-*`: the Kaggle runner deletes
+        directories matching that glob to keep the session output small, and
+        this is the one thing that must survive.
+        """
+        d = self.out_dir / name
+        tmp = self.out_dir / (name + ".tmp")
+        if tmp.exists():
+            shutil.rmtree(tmp)
+        tmp.mkdir(parents=True, exist_ok=True)
+
+        self.policy.save_pretrained(tmp / "policy")
+        self.tok.save_pretrained(tmp / "policy")
+        state = {
+            "step_idx": self.step_idx,
+            "reward_calls": self.reward_calls,
+            "optimizer": self.opt.state_dict(),
+            "rng": self._rng_state(),
+            "prompt_order": self.prompt_order,
+            "args": asdict(self.args),
+            "external_critic": self.external_critic,
+        }
+        if not self.external_critic:
+            state["v_head"] = self.critic.v_head.state_dict()
+        else:
+            state["calibration"] = self.critic.calibration.to_dict()
+        torch.save(state, tmp / "trainer_state.pt")
+        (tmp / "history.json").write_text(json.dumps(self.history, indent=1))
+        # atomic-ish swap so a kill mid-write cannot leave a corrupt checkpoint
+        if d.exists():
+            shutil.rmtree(d)
+        tmp.rename(d)
+        print(f"checkpoint saved: step {self.step_idx} -> {d}", flush=True)
+        return d
+
+    def load_checkpoint(self, path: str | Path) -> bool:
+        d = Path(path)
+        sf = d / "trainer_state.pt"
+        if not sf.exists():
+            return False
+        state = torch.load(sf, map_location="cpu", weights_only=False)
+        from transformers import AutoModelForCausalLM
+
+        loaded = AutoModelForCausalLM.from_pretrained(
+            d / "policy", dtype=next(self.policy.parameters()).dtype
+        )
+        self.policy.load_state_dict(loaded.state_dict())
+        self.policy.to(self.device)
+        del loaded
+        self.opt.load_state_dict(state["optimizer"])
+        if not self.external_critic and "v_head" in state:
+            self.critic.v_head.load_state_dict(state["v_head"])
+        if self.external_critic and "calibration" in state:
+            from .critic.jev_critic import Calibration
+
+            self.critic.calibration = Calibration(**state["calibration"])
+        self.step_idx = int(state["step_idx"])
+        self.reward_calls = int(state.get("reward_calls", 0))
+        self.prompt_order = state.get("prompt_order", self.prompt_order)
+        self._load_rng(state.get("rng", {}))
+        hj = d / "history.json"
+        if hj.exists():
+            self.history = json.loads(hj.read_text())
+        print(f"resumed from {d} at step {self.step_idx} "
+              f"({self.reward_calls} reward calls already spent)", flush=True)
+        return True
 
     def save(self, name: str) -> Path:
         d = self.out_dir / name
