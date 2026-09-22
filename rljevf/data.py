@@ -51,8 +51,12 @@ def rl_prompts(n: int = 4096, seed: int = 0, split: str = "train_prefs") -> Data
 EVAL_FRACTION = 0.25
 
 
-def _test_split(which: str, seed: int = 0) -> Dataset:
-    ds = _ultrafeedback("test_prefs").shuffle(seed=seed)
+def _test_split(which: str) -> Dataset:
+    """Deliberately takes no seed. The eval half and the judge half are two
+    views of one partition, so a caller that shuffled differently would move
+    the boundary for one and not the other and silently reintroduce the overlap
+    this partition exists to prevent."""
+    ds = _ultrafeedback("test_prefs").shuffle(seed=0)
     cut = int(len(ds) * EVAL_FRACTION)
     return ds.select(range(cut)) if which == "eval" else ds.select(range(cut, len(ds)))
 
@@ -63,7 +67,7 @@ def eval_prompts(n: int = 200, seed: int = 0) -> Dataset:
     Disjoint from `rl_prompts` by split, and from the judge-benchmark pairs by
     partition within that split.
     """
-    ds = _test_split("eval", seed=0)
+    ds = _test_split("eval")
     ds = ds.map(lambda r: {"prompt": r["prompt"]}, remove_columns=[c for c in ds.column_names if c != "prompt"])
     ds = _clean(ds).shuffle(seed=seed)
     return ds.select(range(min(n, len(ds))))
@@ -79,7 +83,7 @@ def preference_pairs(n: int = 8000, seed: int = 0,
     239 of its 2000 prompts inside the set the policies train on, which would
     make "held-out" false in the paper.
     """
-    ds = (_test_split("judge", seed=0).shuffle(seed=seed)
+    ds = (_test_split("judge").shuffle(seed=seed)
           if split == "test_prefs" else _ultrafeedback(split).shuffle(seed=seed))
 
     def fmt(r):

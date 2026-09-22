@@ -19,7 +19,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, ClassVar, Iterable, Sequence
 
 import httpx
 
@@ -95,10 +95,13 @@ class Meter:
     # budget x (number of meters) -- fourteen of them, and a $30 budget that
     # was really $420. The global total is the sum of every meter's file, which
     # stays correct without a shared ledger to race over.
-    _global_total: float = 0.0
-    _global_checked_at: float = 0.0
-    _global_lock = threading.Lock()
-    GLOBAL_REFRESH_S: float = 10.0
+    # ClassVar, not a field: these are shared cache state read through `cls`,
+    # and a dataclass would otherwise give every instance its own stale copy in
+    # __init__, __repr__ and __eq__.
+    _global_total: ClassVar[float] = 0.0
+    _global_checked_at: ClassVar[float] = 0.0
+    _global_lock: ClassVar[threading.Lock] = threading.Lock()
+    GLOBAL_REFRESH_S: ClassVar[float] = 10.0
 
     @classmethod
     def global_spend(cls, force: bool = False) -> float:

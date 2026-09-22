@@ -434,30 +434,62 @@ def push_runner(api, gpu: bool, quiet: bool = False) -> str:
     return ref
 
 
+def _status_name(st) -> str:
+    """Kaggle returns an enum here, or a bare string, depending on the path."""
+    raw = getattr(st, "status", st)
+    return str(getattr(raw, "name", raw) or "")
+
+
 def unfetched_output(api) -> str | None:
     """Warn before a push buries a finished session's results.
 
-    Kaggle serves the output of the kernel's latest version, so starting the
-    next batch before collecting the previous one makes those artifacts hard to
-    reach. A session can finish while nobody is watching -- it runs server-side
-    and does not need the machine that started it -- so this is checked rather
-    than remembered.
+    Kaggle serves the output of a kernel's latest version, so starting the next
+    batch before collecting the previous one makes those artifacts hard to
+    reach. A session finishes server-side whether or not anyone is watching, so
+    this is checked rather than remembered.
+
+    The question is "did a session finish *after* the last fetch", not "is the
+    local copy recent". Asking the second fires on the ordinary workflow --
+    fetch, read the results for an hour, start the next batch -- which teaches
+    the habit of passing --force, and that suppresses the guard on the one
+    occasion it matters. When the answer cannot be determined the guard says so
+    rather than disabling itself quietly.
     """
     ref = f"{_username()}/{RUNNER_SLUG}"
     try:
-        st = retrying(api.kernels_status, ref, tries=2, what="kernels_status")
-        status = getattr(getattr(st, "status", None), "name", "")
-    except Exception:  # noqa: BLE001
+        status = _status_name(retrying(api.kernels_status, ref, tries=2,
+                                       what="kernels_status"))
+    except Exception as e:  # noqa: BLE001
+        print(f"WARNING: could not read the kernel's status ({type(e).__name__}); "
+              f"the anti-clobber guard is not active for this push", flush=True)
         return None
-    if "COMPLETE" not in str(status).upper() and "ERROR" not in str(status).upper():
-        return None
-    marker = PROJECT / "runs" / "kaggle" / "artifacts" / "MANIFEST.json"
-    newest_local = marker.stat().st_mtime if marker.exists() else 0
-    import time as _t
+    if not any(k in status.upper() for k in ("COMPLETE", "ERROR", "CANCEL")):
+        return None      # nothing finished, nothing to bury
 
-    if _t.time() - newest_local > 3600:
-        return (f"the previous session finished ({status}) and its artifacts were "
-                f"last fetched more than an hour ago")
+    marker = PROJECT / "runs" / "kaggle" / "artifacts" / "MANIFEST.json"
+    fetched_at = marker.stat().st_mtime if marker.exists() else 0.0
+
+    finished_at = None
+    try:
+        for k in api.kernels_list(mine=True, page_size=50):
+            if str(k.ref).endswith(RUNNER_SLUG):
+                lrt = getattr(k, "last_run_time", None)
+                if lrt is not None:
+                    from datetime import timezone
+
+                    finished_at = lrt.replace(tzinfo=timezone.utc).timestamp()
+                break
+    except Exception:  # noqa: BLE001
+        finished_at = None
+
+    if finished_at is None:
+        print("WARNING: the kernel's last run time is unavailable, so whether "
+              "its output was collected cannot be determined; proceeding",
+              flush=True)
+        return None
+    if finished_at > fetched_at:
+        when = "never" if fetched_at == 0 else "before that run finished"
+        return (f"the last run finished ({status}) and its output was fetched {when}")
     return None
 
 
