@@ -274,15 +274,25 @@ def preflight() -> None:
                 compile(f.read_text(), str(f), "exec")
             except SyntaxError as e:
                 bad.append(f"{f.relative_to(PROJECT)}:{e.lineno}: {e.msg}")
-    # the job plan must be loadable and name commands that exist
+    # the job plan must be loadable, name commands that exist, and write
+    # somewhere writable -- the code dataset is mounted read-only in the kernel,
+    # which cost a job when collect_results.py tried to write beside its source
     active = PROJECT / "jobs" / "active.json"
     if active.exists():
         try:
             plan = json.loads(active.read_text())
             for job in plan.get("jobs", []):
-                script = job["command"].split()[0]
-                if not (PROJECT / script).exists():
-                    bad.append(f"jobs/active.json: {job['name']} -> missing {script}")
+                parts = job["command"].split()
+                scripts_named = [a for a in parts if a.endswith(".py")]
+                for script in scripts_named:
+                    if not (PROJECT / script).exists():
+                        bad.append(f"jobs/active.json: {job['name']} -> missing {script}")
+                if "--out" in parts:
+                    out = parts[parts.index("--out") + 1]
+                    if not out.startswith("/kaggle/working"):
+                        bad.append(f"jobs/active.json: {job['name']} writes to "
+                                   f"{out!r}, which is not under /kaggle/working "
+                                   f"(the code dataset is read-only)")
         except Exception as e:  # noqa: BLE001
             bad.append(f"jobs/active.json: {type(e).__name__}: {e}")
     if bad:

@@ -14,13 +14,19 @@ _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
 import argparse
 import asyncio
 import json
+import os
 import re
 import time
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
-RUNS = PROJECT / "runs"
-RESULTS = PROJECT / "results"
+
+# On Kaggle the code is mounted read-only as a dataset, so output cannot go
+# next to the source. RLJEVF_RUN_ROOT points at the writable working directory
+# in that environment and is unset locally.
+_RUN_ROOT = os.environ.get("RLJEVF_RUN_ROOT")
+RUNS = Path(_RUN_ROOT) if _RUN_ROOT else PROJECT / "runs"
+RESULTS = (Path(_RUN_ROOT).parent / "results") if _RUN_ROOT else PROJECT / "results"
 
 ARM_LABELS = {
     "R0-sft": ("baseline", "SFT (reference)"),
@@ -156,7 +162,8 @@ def main() -> None:
     ap.add_argument("--force-live", action="store_true",
                     help="measure Jev from here even without a GPU (not for the paper)")
     args = ap.parse_args()
-    RESULTS.mkdir(exist_ok=True)
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    print(f"runs: {RUNS}\nresults: {RESULTS}", flush=True)
     arms = discover()
     print(f"found {len(arms)} arms: {sorted(arms)}")
 

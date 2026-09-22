@@ -26,7 +26,7 @@
   ],
   [
    "RLAIF judge",
-   "\\texttt{Qwen/Qwen2.5-1.5B-Instruct}, read from logits"
+   "\\texttt{Qwen/Qwen2.5-3B-Instruct}, read from logits"
   ],
   [
    "Self-judge",
@@ -38,19 +38,19 @@
   ],
   [
    "Evaluation judge",
-   "\\texttt{openai/gpt-4.1-mini} (unrelated to every training judge)"
+   "\\texttt{openai/gpt-5-mini} (unrelated to every training judge)"
   ],
   [
    "GRPO",
-   "$G=8$, 16 prompts/step, 250 steps, lr $10^{-6}$, $\\beta=0.04$"
+   "$G=8$, 16 prompts/step, 180 steps, lr $10^{-6}$, $\\beta=0.04$"
   ],
   [
    "PPO",
-   "64 prompts/step, 150 steps, lr $10^{-6}$, KL coef 0.05, GAE $\\lambda=0.95$"
+   "64 prompts/step, 110 steps, lr $10^{-6}$, KL coef 0.05, GAE $\\lambda=0.95$"
   ],
   [
    "Reward-call budget",
-   "32,000 per GRPO run (matched across sources)"
+   "23,040 per GRPO run (matched across sources)"
   ],
   [
    "Decoding",
