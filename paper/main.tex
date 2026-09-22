@@ -445,11 +445,18 @@ that the fairness protocol of Section~\ref{sec:parsefree} still holds.
 
 Second, the efficiency claim, stated carefully because the obvious version of
 it is not defensible. \input{tables/efficiency_inline.tex}\unskip{} That ratio
-compares two \emph{deployment modes}, not two models: \jev{} is queried over the
-network at concurrency 48, while the local judge runs on one GPU at a fixed
-batch size. Table~\ref{tab:throughput} sweeps that batch size so the part of the
-gap that tuning can close is separated from the part that cannot, and we take
-the tuned figure as the comparison.
+compares two \emph{deployment modes}, not two models, so we swept both sides
+rather than quoting it: \jev{} across concurrency and the local judge across
+batch size (Table~\ref{tab:throughput}).
+
+The sweep did not go as expected. The local judge's throughput \emph{falls}
+monotonically as its batch grows --- 0.72, 0.61 and 0.51 judgements per second
+at batches of 4, 8 and 16 --- while its memory rises from 4.3 to 8.5\,GB, and a
+batch of 32 runs out of memory. The cause is structural rather than incidental:
+a rubric of $Q$ questions is $Q$ separate prefills over a shared state, so a
+larger batch mostly buys padding. Batching is the obvious lever and it points
+the wrong way. We therefore compare each side at its own best setting, which is
+the comparison that favours the local judge as far as it can be favoured.
 
 What does not depend on tuning is where the computation has to happen. During
 RL the local judge occupies the same accelerator as the policy it is scoring:
