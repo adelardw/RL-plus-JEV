@@ -48,20 +48,30 @@ re-run in `jobs/week1_experiments.json`.
 ## Measured results
 
 ### Experiment 0 -- can each reward source recognise a human preference?
-300 held-out UltraFeedback pairs, on a T4.
+300 held-out UltraFeedback pairs, on Kaggle (2x T4).
 
-| Source | Accuracy | Cohen's d | Wall |
-|---|---|---|---|
-| Jev | 0.650 | +0.394 | 7 s |
-| BERT RM (DeBERTa BT) | 0.597 | +0.191 | 85 s |
-| Qwen2.5-3B (logits) | 0.577 | +0.252 | 975 s |
-| Qwen2.5-1.5B (logits) | 0.507 | -0.067 | 486 s |
-| Qwen2.5-7B | OOM on one T4 | | |
+| Source | Accuracy | Cohen's d | Wall | Notes |
+|---|---|---|---|---|
+| api_judge:deepseek-v4-flash-0731 | 0.677 | +0.489 | 154 s | $0.092, 1.8% unreadable |
+| llm_judge:Qwen2.5-7B-Instruct | 0.647 | +0.384 | 1831 s |  |
+| jev | 0.640 | +0.396 | 6 s |  |
+| bert_rm | 0.597 | +0.191 | 54 s |  |
+| llm_judge:Qwen2.5-3B-Instruct | 0.577 | +0.252 | 799 s |  |
 
-**This n is too small to support the ranking.** Resolving 0.650 vs 0.597 needs
-n >= 1308 at zero judge correlation, n >= 655 at rho = 0.5 (`rljevf/stats.py`).
-The 5.3-point gap sits entirely inside its own confidence interval at n = 300.
-To be re-run at n = 2000 with McNemar and paired bootstrap.
+The ranking is not the point; at n = 300 none of these differences is
+significant, and the paired tests did not run in this session because the
+kernel mounted the dataset version from before that patch. Two things are
+the point:
+
+- The local judges that fit the hardware are weak. 1.5B is at chance, 3B is
+  below the Bradley-Terry reward model. Hence the hosted RLAIF judge.
+- **Jev reaches 0.640 in 6 seconds; the 7B local judge reaches 0.647 in 1831
+  seconds.** 0.7 accuracy points against a factor of 305 in wall-clock, and the
+  7B had to be sharded across both GPUs (~22 GB) to run at all. Equivalent
+  judgement at a cost that makes K queries per completion affordable is the
+  whole argument for the critic role.
+
+Re-running at n = 2000 with McNemar and paired bootstrap.
 
 ### Experiment 1 -- is the prefix probability a value function?
 n = 256 completions from the base policy, scored by Jev.

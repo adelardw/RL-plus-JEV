@@ -437,6 +437,23 @@ fixes the RLAIF judge size; running that arm with a judge at chance would be a
 straw man rather than a baseline.
 \input{tables/judge_benchmark.tex}
 
+Two things in that table matter more than the ranking. First, the local judges
+that fit on the available hardware are weak: the 1.5B model is at chance, and
+the 3B model is below the Bradley--Terry reward model it is supposed to
+improve on. That is why the RLAIF arm uses a hosted judge, read from logits so
+that the fairness protocol of Section~\ref{sec:parsefree} still holds.
+
+Second, and this is the efficiency claim the paper rests on:
+\jev{} scores 300 pairs at 0.640 accuracy in 6 seconds, while the 7B local
+judge reaches 0.647 in 1831 seconds --- a difference of 0.7 accuracy points
+against a factor of 310 in wall-clock. The 7B judge also had to be sharded
+across both GPUs to run at all, occupying roughly 22\,GB, against none for the
+typed model. We do not claim \jev{} is the better judge; at this sample size
+those two accuracies are not distinguishable, which is precisely the point.
+The claim is that equivalent judgement is available at a cost that makes
+querying it $K$ times per completion --- the critic role --- affordable, and
+that this is what changes which algorithms are reachable.
+
 \subsection{Is \jev{}'s prefix probability a value function?}
 \label{sec:res-calibration}
 \input{tables/calibration.tex}
