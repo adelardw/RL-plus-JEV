@@ -44,6 +44,8 @@ def main() -> None:
                          "state is 4GB of a T4 for a 0.5B model in fp32")
     ap.add_argument("--lr", type=float, default=1e-6)
     ap.add_argument("--beta", type=float, default=0.04)
+    ap.add_argument("--scale-rewards", default="group",
+                    help="pinned for the same reason as beta: TRL defaults drift")
     ap.add_argument("--max-completion-length", type=int, default=384)
     ap.add_argument("--n-prompts", type=int, default=8192)
     ap.add_argument("--reward-call-budget", type=int, default=None)
@@ -90,6 +92,7 @@ def main() -> None:
         max_steps=args.steps,
         learning_rate=args.lr,
         beta=args.beta,                       # set explicitly: TRL's default drifted
+        scale_rewards=args.scale_rewards,     # same reason; pin it rather than inherit
         num_generations=args.num_generations,
         generation_batch_size=gen_bs,
         per_device_train_batch_size=args.micro_bs,

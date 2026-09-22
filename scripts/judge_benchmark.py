@@ -83,13 +83,17 @@ def main() -> None:
     ap.add_argument("--api-judges", default="deepseek/deepseek-v4-flash-0731",
                     help="comma-separated hosted judges read via logprobs")
     ap.add_argument("--max-chars", type=int, default=4000)
+    ap.add_argument("--split", default="test_prefs",
+                    choices=["test_prefs", "train_prefs"],
+                    help="judges are measured on the held-out split")
     ap.add_argument("--out", default="results/judge_benchmark.json")
     ap.add_argument("--smoke", action="store_true",
                     help="allow running off-GPU to check the code path")
     args = ap.parse_args()
     require_experiment_host("judge_benchmark")
 
-    ds = preference_pairs(n=args.n * 2, seed=7)
+    # test_prefs: disjoint from the prompts the policies train on
+    ds = preference_pairs(n=args.n * 2, seed=7, split=args.split)
     rows = [ds[i] for i in range(len(ds))]
     rows = [r for r in rows if len(r["chosen"]) < args.max_chars and len(r["rejected"]) < args.max_chars]
     rows = rows[: args.n]

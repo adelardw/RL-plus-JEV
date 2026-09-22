@@ -434,10 +434,46 @@ def push_runner(api, gpu: bool, quiet: bool = False) -> str:
     return ref
 
 
-def trigger(api, gpu: bool = True) -> str:
+def unfetched_output(api) -> str | None:
+    """Warn before a push buries a finished session's results.
+
+    Kaggle serves the output of the kernel's latest version, so starting the
+    next batch before collecting the previous one makes those artifacts hard to
+    reach. A session can finish while nobody is watching -- it runs server-side
+    and does not need the machine that started it -- so this is checked rather
+    than remembered.
+    """
+    ref = f"{_username()}/{RUNNER_SLUG}"
+    try:
+        st = retrying(api.kernels_status, ref, tries=2, what="kernels_status")
+        status = getattr(getattr(st, "status", None), "name", "")
+    except Exception:  # noqa: BLE001
+        return None
+    if "COMPLETE" not in str(status).upper() and "ERROR" not in str(status).upper():
+        return None
+    marker = PROJECT / "runs" / "kaggle" / "artifacts" / "MANIFEST.json"
+    newest_local = marker.stat().st_mtime if marker.exists() else 0
+    import time as _t
+
+    if _t.time() - newest_local > 3600:
+        return (f"the previous session finished ({status}) and its artifacts were "
+                f"last fetched more than an hour ago")
+    return None
+
+
+def trigger(api, gpu: bool = True, force: bool = False) -> str:
     """Start a batch. Re-pushing the kernel is what starts a run on Kaggle;
     with the key mounted as a dataset there is no secret attachment to lose,
     so this needs nobody at a keyboard."""
+    stale = unfetched_output(api)
+    if stale and not force:
+        raise SystemExit(
+            f"refusing to start a batch: {stale}.\n"
+            f"  Kaggle serves only the latest version's output, so this push "
+            f"would bury it.\n"
+            f"    collect it first:  python scripts/fetch_artifacts.py --to runs/kaggle\n"
+            f"    or override:       python scripts/kaggle_run.py run --force"
+        )
     push_code(api)
     print("waiting 25s for the dataset version to land...")
     time.sleep(25)
@@ -545,6 +581,8 @@ def main() -> None:
     p = sub.add_parser("run")
     p.add_argument("--no-gpu", action="store_true")
     p.add_argument("--wait", action="store_true")
+    p.add_argument("--force", action="store_true",
+                   help="start even if the previous session's output was not collected")
     p = sub.add_parser("set-jobs"); p.add_argument("--jobs", required=True)
     sub.add_parser("status")
     sub.add_parser("logs")
@@ -559,7 +597,7 @@ def main() -> None:
     elif args.cmd == "push-secrets":
         push_secrets(api)
     elif args.cmd == "run":
-        trigger(api, gpu=not args.no_gpu)
+        trigger(api, gpu=not args.no_gpu, force=args.force)
         if args.wait:
             print("final status:", wait_for(api))
     elif args.cmd == "set-jobs":

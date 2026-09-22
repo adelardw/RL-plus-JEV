@@ -53,6 +53,9 @@ def find_completions(runs_dir: Path) -> dict[str, dict]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", default="/kaggle/working/runs")
+    ap.add_argument("--sft", default="/kaggle/working/runs/R0-sft",
+                    help="the self-judge column must use the same frozen SFT copy "
+                         "the self-judge arm trained against, not the base model")
     ap.add_argument("--baseline", default="R0-sft",
                     help="run whose row every cell is expressed relative to")
     ap.add_argument("--sources", default="jev,bert_rm,api_judge,self_judge")
@@ -82,7 +85,8 @@ def main() -> None:
     sources = {}
     stats = {}
     for sname in [s for s in args.sources.split(",") if s]:
-        cfg = RunConfig(run_id=f"cross-{sname}", reward_source=sname, algo="none")
+        cfg = RunConfig(run_id=f"cross-{sname}", reward_source=sname,
+                        algo="none", sft_checkpoint=args.sft)
         try:
             fn, src = build_reward(cfg)
             sources[sname] = fn

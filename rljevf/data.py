@@ -44,18 +44,43 @@ def rl_prompts(n: int = 4096, seed: int = 0, split: str = "train_prefs") -> Data
     return ds.select(range(min(n, len(ds))))
 
 
+# test_prefs holds only ~2000 examples and serves two different measurements:
+# the win-rate of trained policies, and the judge benchmark. Partitioning it
+# once, deterministically, keeps those two from sharing prompts -- which is not
+# a leak between them, but is one less thing a reader has to take on trust.
+EVAL_FRACTION = 0.25
+
+
+def _test_split(which: str, seed: int = 0) -> Dataset:
+    ds = _ultrafeedback("test_prefs").shuffle(seed=seed)
+    cut = int(len(ds) * EVAL_FRACTION)
+    return ds.select(range(cut)) if which == "eval" else ds.select(range(cut, len(ds)))
+
+
 def eval_prompts(n: int = 200, seed: int = 0) -> Dataset:
-    """Held-out prompts for win-rate. Disjoint from `rl_prompts` by split."""
-    ds = _ultrafeedback("test_prefs")
+    """Held-out prompts for win-rate.
+
+    Disjoint from `rl_prompts` by split, and from the judge-benchmark pairs by
+    partition within that split.
+    """
+    ds = _test_split("eval", seed=0)
     ds = ds.map(lambda r: {"prompt": r["prompt"]}, remove_columns=[c for c in ds.column_names if c != "prompt"])
     ds = _clean(ds).shuffle(seed=seed)
     return ds.select(range(min(n, len(ds))))
 
 
-def preference_pairs(n: int = 8000, seed: int = 0) -> Dataset:
-    """(prompt, chosen, rejected) for training / sanity-checking the BERT RM
-    and for the DPO baseline."""
-    ds = _ultrafeedback("train_prefs").shuffle(seed=seed)
+def preference_pairs(n: int = 8000, seed: int = 0,
+                     split: str = "train_prefs") -> Dataset:
+    """(prompt, chosen, rejected).
+
+    `split` matters. Training the reward model and the DPO baseline uses
+    `train_prefs`; *measuring* a judge must use `test_prefs`, which is disjoint
+    from the RL prompt set. Drawing the judge benchmark from `train_prefs` put
+    239 of its 2000 prompts inside the set the policies train on, which would
+    make "held-out" false in the paper.
+    """
+    ds = (_test_split("judge", seed=0).shuffle(seed=seed)
+          if split == "test_prefs" else _ultrafeedback(split).shuffle(seed=seed))
 
     def fmt(r):
         return {

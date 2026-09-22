@@ -69,6 +69,7 @@ class Meter:
     input_tokens: int = 0
     latencies: list[float] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _last_flushed: float = 0.0
 
     flush_every: int = 20
 
@@ -83,15 +84,49 @@ class Meter:
             try:
                 prior = json.loads(self.path.read_text())
                 self.cost_usd = float(prior.get("cost_usd", 0.0))
+                self._last_flushed = self.cost_usd
                 self.calls = int(prior.get("calls", 0))
                 self.input_tokens = int(prior.get("input_tokens", 0))
             except Exception:
                 pass
 
+    # The cap is on the *study*, not on one client. Each Meter keeps its own
+    # file, so checking only its own total made the effective ceiling
+    # budget x (number of meters) -- fourteen of them, and a $30 budget that
+    # was really $420. The global total is the sum of every meter's file, which
+    # stays correct without a shared ledger to race over.
+    _global_total: float = 0.0
+    _global_checked_at: float = 0.0
+    _global_lock = threading.Lock()
+    GLOBAL_REFRESH_S: float = 10.0
+
+    @classmethod
+    def global_spend(cls, force: bool = False) -> float:
+        now = time.time()
+        with cls._global_lock:
+            if not force and now - cls._global_checked_at < cls.GLOBAL_REFRESH_S:
+                return cls._global_total
+            total = 0.0
+            try:
+                for f in CACHE_ROOT.glob("spend_*.json"):
+                    try:
+                        total += float(json.loads(f.read_text()).get("cost_usd", 0.0))
+                    except (OSError, ValueError, json.JSONDecodeError):
+                        continue
+            except OSError:
+                pass
+            cls._global_total = total
+            cls._global_checked_at = now
+            return total
+
     def check(self) -> None:
-        if self.cost_usd >= self.budget_usd:
+        # own unflushed spend plus everyone else's last flush
+        other = max(0.0, self.global_spend() - self._last_flushed)
+        total = other + self.cost_usd
+        if total >= self.budget_usd:
             raise BudgetExceeded(
-                f"{self.name}: spent ${self.cost_usd:.4f} of ${self.budget_usd:.2f} cap"
+                f"study budget reached: ${total:.4f} of ${self.budget_usd:.2f} "
+                f"across all meters (this one: {self.name}, ${self.cost_usd:.4f})"
             )
 
     def record(self, cost: float, latency: float, input_tokens: int = 0) -> None:
@@ -111,6 +146,8 @@ class Meter:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.summary()))
         tmp.replace(self.path)
+        self._last_flushed = self.cost_usd
+        type(self)._global_checked_at = 0.0     # force a refresh on next check
 
     def flush(self) -> None:
         with self._lock:
