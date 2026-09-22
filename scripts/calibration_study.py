@@ -30,10 +30,31 @@ import torch
 
 from rljevf.config import POLICY_MODEL
 from rljevf.critic.jev_critic import JevCritic, fit_calibration
+from rljevf.critic.judge_critic import APIJudgePrefixCritic
 from rljevf.data import eval_prompts
 from rljevf.evaluate.generate import load_policy, sample
 from rljevf.jevclient import JevClient, Meter
 from rljevf.rubric import GENERAL_RUBRIC, build_state
+
+
+def calibration_spread(probs: Sequence[float]) -> dict:
+    """How much of [0,1] a critic actually uses.
+
+    A critic that answers only 0 or 1 is useless *as a critic* even if it is a
+    fine judge: TD errors are differences between neighbouring values, so a
+    saturated value curve carries no signal in the middle of a response, which
+    is exactly where credit assignment is needed.
+    """
+    n = len(probs)
+    if not n:
+        return {}
+    saturated = sum(1 for p in probs if p < 0.02 or p > 0.98) / n
+    mean = sum(probs) / n
+    var = sum((p - mean) ** 2 for p in probs) / n
+    # how many of 10 equal bins are occupied
+    bins = {min(9, int(p * 10)) for p in probs}
+    return {"saturated_frac": saturated, "std": var ** 0.5,
+            "bins_occupied": len(bins), "mean": mean}
 
 
 def auc(scores: list[float], labels: list[int]) -> float:
@@ -58,6 +79,36 @@ def spearman(x: list[float], y: list[float]) -> float:
     rx = (rx - rx.mean()) / rx.std().clamp_min(1e-9)
     ry = (ry - ry.mean()) / ry.std().clamp_min(1e-9)
     return float((rx * ry).mean())
+
+
+async def run_critic(prompts, comps, fracs, critic, rewards, labels) -> dict:
+    """The same measurement for any prefix critic, so the three are comparable."""
+    by_frac: dict[float, list[float]] = {}
+    for f in fracs:
+        prefixes = [" ".join(c.split()[: max(0, int(len(c.split()) * f))]) for c in comps]
+        by_frac[f] = await critic.aprefix_probs_batch(list(prompts), prefixes)
+    cal = fit_calibration(by_frac[1.0], rewards)
+    return {
+        "calibration_at_full": cal.to_dict(),
+        "spread_at_full": calibration_spread(by_frac[1.0]),
+        "by_fraction": {
+            f"{f:.2f}": {
+                "mean_value": sum(by_frac[f]) / len(by_frac[f]),
+                "auc_vs_final_quality": auc(by_frac[f], labels),
+                "spearman_vs_final_reward": spearman(by_frac[f], rewards),
+                "calibration": fit_calibration(by_frac[f], rewards).to_dict(),
+                "spread": calibration_spread(by_frac[f]),
+            }
+            for f in fracs
+        },
+        "mean_value_curve_good": {
+            f"{f:.2f}": sum(v for v, l in zip(by_frac[f], labels) if l == 1) / max(1, sum(labels))
+            for f in fracs},
+        "mean_value_curve_bad": {
+            f"{f:.2f}": sum(v for v, l in zip(by_frac[f], labels) if l == 0)
+            / max(1, len(labels) - sum(labels)) for f in fracs},
+        "stats": critic.stats(),
+    }
 
 
 async def run(prompts, comps, fracs, client, critic) -> dict:
@@ -119,6 +170,9 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=128)
     ap.add_argument("--max-new-tokens", type=int, default=256)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--critics", default="jev,api",
+                    help="comma-separated: jev, api, local -- the same prefix "
+                         "measurement run with different judges")
     ap.add_argument("--out", default="results/calibration_study.json")
     args = ap.parse_args()
 
@@ -148,6 +202,39 @@ def main() -> None:
     res = asyncio.run(run(prompts, comps, fracs, client, critic))
     res["policy"] = args.policy
     res["cost"] = client.meter.summary()
+
+    # The same measurement with other judges, so the paper can claim the
+    # mechanism rather than one vendor's API.
+    wanted = [c for c in args.critics.split(",") if c and c != "jev"]
+    if wanted:
+        rewards = res["raw"]["rewards"]
+        med = res["reward_median"]
+        labels = [1 if r > med else 0 for r in rewards]
+        res["critics"] = {"jev": {
+            "calibration_at_full": res["calibration_at_full"],
+            "by_fraction": res["by_fraction"],
+            "mean_value_curve_good": res["mean_value_curve_good"],
+            "mean_value_curve_bad": res["mean_value_curve_bad"],
+            "spread_at_full": calibration_spread(res["raw"]["by_fraction"]["1.0"]),
+        }}
+        for kind in wanted:
+            try:
+                if kind == "api":
+                    from rljevf.config import API_JUDGE_MODEL
+                    c = APIJudgePrefixCritic(tok, API_JUDGE_MODEL, concurrency=24)
+                elif kind == "local":
+                    from rljevf.config import JUDGE_MODEL
+                    from rljevf.critic.judge_critic import LocalJudgePrefixCritic
+                    from rljevf.rewards.llm_judge import LLMJudgeRewardSource
+                    c = LocalJudgePrefixCritic(tok, LLMJudgeRewardSource(model_name=JUDGE_MODEL, batch_size=8))
+                else:
+                    continue
+                print(f"running the {kind} prefix critic...", flush=True)
+                res["critics"][kind] = asyncio.run(
+                    run_critic(prompts, comps, fracs, c, rewards, labels))
+            except Exception as e:  # noqa: BLE001
+                print(f"{kind} critic FAILED: {type(e).__name__}: {e}", flush=True)
+                res.setdefault("critics", {})[kind] = {"error": str(e)}
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

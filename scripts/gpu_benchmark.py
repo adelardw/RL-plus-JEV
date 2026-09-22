@@ -36,7 +36,7 @@ def bench_grpo(model_name, steps, prompts, G, max_new, micro_bs, use_vllm):
     model = AutoModelForCausalLM.from_pretrained(
         model_name, dtype=torch.bfloat16 if bf16 else torch.float32)
 
-    def rew(prompts_, completions, **kw):
+    def rew(prompts, completions, **kw):   # TRL passes prompts= by keyword
         return [float(len(c)) / 1000 for c in completions]
 
     gen_bs = prompts * G
@@ -79,7 +79,7 @@ def bench_ppo(model_name, steps, prompts, max_new, micro_bs, gen_bs, forward_chu
     from rljevf.critic.jev_critic import LearnedValueCritic
     critic = LearnedValueCritic(policy)
 
-    def rew(prompts_, completions, **kw):
+    def rew(prompts, completions, **kw):   # TRL passes prompts= by keyword
         return [float(len(c)) / 1000 for c in completions]
 
     args = PPOArgs(max_steps=steps, batch_prompts=prompts, micro_batch_size=micro_bs,

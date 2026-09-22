@@ -26,6 +26,7 @@ COST_RUBRIC_CALL = 3.0e-5     # 5-question rubric over prompt + full completion
 COST_PREFIX_CALL = 2.0e-5     # 1 question over prompt + partial completion
 COST_JUDGE_PAIR = 5.1e-4      # one A/B verdict from the external eval judge
 COST_RUBRIC_GEN = 7.2e-4      # one SG2JEV question-set generation
+COST_API_JUDGE = 1.45e-4      # one completion scored on all 5 rubric questions
 
 CORE_SEEDS = (0, 1, 2)
 ABLATION_SEEDS = (0,)
@@ -56,12 +57,16 @@ class Arm:
 
 
 # --- shared scale ---------------------------------------------------------- #
-GRPO_STEPS = 250
+# The reward-call budget is a controlled variable shared by every arm, so
+# shrinking it rescales all arms equally and leaves every comparison intact.
+# 180 keeps three seeds per arm inside the $30 budget with room for reruns,
+# which two seeds at 250 steps would not have bought.
+GRPO_STEPS = 180
 GRPO_PROMPTS = 16
 GRPO_G = 8
 GRPO_CALLS = GRPO_STEPS * GRPO_PROMPTS * GRPO_G          # 32,000 reward calls
 
-PPO_STEPS = 150
+PPO_STEPS = 110
 PPO_PROMPTS = 64
 PPO_CALLS = PPO_STEPS * PPO_PROMPTS                      # 9,600 reward calls
 PPO_PREFIXES = 6
@@ -95,8 +100,10 @@ ARMS: list[Arm] = [
         usd_per_seed=0.0, note="DeBERTa Bradley-Terry RM, local", depends_on="R0-sft"),
     Arm("R2-self", grpo_cmd("self_judge"),
         usd_per_seed=0.0, note="frozen SFT copy judges itself, local", depends_on="R0-sft"),
-    Arm("R3-rlaif", grpo_cmd("llm_judge"),
-        usd_per_seed=0.0, note="Qwen2.5-1.5B judge read from logits, local", depends_on="R0-sft"),
+    Arm("R3-rlaif", grpo_cmd("api_judge"),
+        usd_per_seed=GRPO_STEPS * GRPO_PROMPTS * GRPO_G * COST_API_JUDGE,
+        note="hosted judge read from logits (parse-free), DeepSeek V4 Flash",
+        depends_on="R0-sft"),
     Arm("R4-jev", grpo_cmd("jev"),
         usd_per_seed=GRPO_CALLS * COST_RUBRIC_CALL, note="Jev as reward function",
         depends_on="R0-sft"),

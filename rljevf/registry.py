@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 import torch
 
-from .config import BERT_RM_MODEL, JUDGE_MODEL, RunConfig
+from .config import API_JUDGE_MODEL, BERT_RM_MODEL, JUDGE_MODEL, RunConfig
 from .critic.jev_critic import JevCritic, LearnedValueCritic
 from .jevclient import JevClient, Meter
 from .orclient import ChatClient
@@ -66,6 +66,17 @@ def build_reward(
 
         jev_reward.__name__ = "jev_reward"
         return jev_reward, source
+
+    if src_name == "api_judge":
+        from .rewards.api_judge import APIJudgeRewardSource
+
+        source = APIJudgeRewardSource(API_JUDGE_MODEL, name=f"apijudge_{cfg.run_id}")
+
+        async def api_judge_reward(prompts, completions, **kw):
+            return await source(prompts, completions, **kw)
+
+        api_judge_reward.__name__ = "api_judge_reward"
+        return api_judge_reward, source
 
     if src_name == "bert_rm":
         from .rewards.bert_rm import BertRMRewardSource

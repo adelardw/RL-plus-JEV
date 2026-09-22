@@ -1,0 +1,11 @@
+{
+ "model": "Qwen/Qwen2.5-0.5B-Instruct",
+ "device": "Tesla T4",
+ "grpo_vllm=False": {
+  "error": "TypeError: bench_grpo.<locals>.rew() missing 1 required positional argument: 'prompts_'"
+ },
+ "ppo": {
+  "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 32.46 GiB. GPU 0 has a total capacity of 14.56 GiB of which 8.36 GiB is free. Including non-PyTorch memory, this process has 6.20 GiB memory in use. Of the allocated memory 5.73 GiB is allocated by PyTorch, and 356.99 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)"
+ },
+ "schedule": {}
+}

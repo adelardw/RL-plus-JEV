@@ -12,13 +12,19 @@ CACHE_ROOT = Path(os.environ.get("RLJEVF_CACHE_ROOT", PROJECT_ROOT / ".cache"))
 
 # --- models -----------------------------------------------------------------
 POLICY_MODEL = os.environ.get("RLJEVF_POLICY", "Qwen/Qwen2.5-0.5B-Instruct")
-JUDGE_MODEL = os.environ.get("RLJEVF_JUDGE", "Qwen/Qwen2.5-1.5B-Instruct")
+# RLAIF judge: a hosted instruct model read from logits (parse-free, like Jev).
+# Chosen over a local judge because the sizes that fit on 2x T4 measure at or
+# near chance on held-out preference pairs (paper, Experiment 0).
+API_JUDGE_MODEL = os.environ.get("RLJEVF_API_JUDGE", "deepseek/deepseek-v4-flash-0731")
+# Local judge, still used for the self-judge arm and as a local-cost reference.
+JUDGE_MODEL = os.environ.get("RLJEVF_JUDGE", "Qwen/Qwen2.5-3B-Instruct")
 BERT_RM_MODEL = os.environ.get(
     "RLJEVF_BERT_RM", "OpenAssistant/reward-model-deberta-v3-large-v2"
 )
 JEV_MODEL = os.environ.get("RLJEVF_JEV", "typesafe/jev-1.13")
 # Eval judge must share no family with ANY training reward source (plan 8.1).
-EVAL_JUDGE_MODEL = os.environ.get("RLJEVF_EVAL_JUDGE", "openai/gpt-4.1-mini")
+# Must share no family with any training reward source (Qwen, DeepSeek, Jev).
+EVAL_JUDGE_MODEL = os.environ.get("RLJEVF_EVAL_JUDGE", "openai/gpt-5-mini")
 
 # --- Jev / OpenRouter -------------------------------------------------------
 JEV_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
@@ -33,7 +39,7 @@ class RunConfig:
     """One row of the results table."""
 
     run_id: str                      # "R3-jev-rf"
-    reward_source: str               # bert_rm | llm_judge | jev | self_certainty | none
+    reward_source: str               # bert_rm | llm_judge | api_judge | jev | self_certainty | none
     algo: str                        # grpo | ppo | none
     critic: str = "none"             # none | learned | jev   (PPO only)
     rubric_source: str = "static"    # static | generated | policy  (SG2JEV ablation)

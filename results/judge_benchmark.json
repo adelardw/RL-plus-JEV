@@ -1,0 +1,50 @@
+{
+ "n": 300,
+ "sources": {
+  "jev": {
+   "accuracy": 0.65,
+   "n": 300,
+   "mean_margin": 0.4200333333333333,
+   "margin_sd": 1.0673104065368684,
+   "cohens_d": 0.3935437439387733,
+   "wall_s": 6.7,
+   "cost": {
+    "name": "judge_benchmark_jev",
+    "cost_usd": 0.02603,
+    "calls": 598,
+    "cache_hits": 2,
+    "input_tokens": 619768,
+    "latency_p50_s": 0.4158,
+    "latency_p95_s": 1.0818,
+    "latency_mean_s": 0.5059
+   }
+  },
+  "bert_rm": {
+   "accuracy": 0.5966666666666667,
+   "n": 300,
+   "mean_margin": 0.33153226216634113,
+   "margin_sd": 1.7354505417329404,
+   "cohens_d": 0.19103526962819026,
+   "wall_s": 85.0
+  },
+  "llm_judge:Qwen2.5-1.5B-Instruct": {
+   "accuracy": 0.5066666666666667,
+   "n": 300,
+   "mean_margin": -0.029180214409716427,
+   "margin_sd": 0.43497360549981917,
+   "cohens_d": -0.06708502318476553,
+   "wall_s": 485.9
+  },
+  "llm_judge:Qwen2.5-3B-Instruct": {
+   "accuracy": 0.5766666666666667,
+   "n": 300,
+   "mean_margin": 0.17264135406656964,
+   "margin_sd": 0.6848672129911743,
+   "cohens_d": 0.25208003944670426,
+   "wall_s": 974.9
+  },
+  "llm_judge:Qwen2.5-7B-Instruct": {
+   "error": "CUDA out of memory. Tried to allocate 1.02 GiB. GPU 0 has a total capacity of 14.56 GiB of which 782.81 MiB is free. Including non-PyTorch memory, this process has 13.79 GiB memory in use. Of the allocated memory 13.20 GiB is allocated by PyTorch, and 483.74 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)"
+  }
+ }
+}

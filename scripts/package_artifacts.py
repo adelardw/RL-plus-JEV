@@ -100,12 +100,17 @@ def main() -> None:
     SKIP_DIRS = {"artifacts", ".venv", ".git", "__pycache__", "node_modules",
                  ".kaggle_staging", ".ipynb_checkpoints"}
     SKIP_SUFFIX = {".lock", ".pyc", ".pyo", ".tmp", ".shm", ".wal"}
+    # The runner rewrites its own state file after this script runs, so a
+    # checksum recorded here would always mismatch on download.
+    SKIP_NAMES = {"runner_state.json"}
 
     files = []
     for f in sorted(work.rglob("*")):
         if not f.is_file() or SKIP_DIRS & set(f.parts):
             continue
         if f.suffix in SKIP_SUFFIX or f.name.endswith(".tmp"):
+            continue
+        if f.name in SKIP_NAMES:
             continue
         files.append({
             "path": str(f.relative_to(work)),

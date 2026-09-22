@@ -46,8 +46,10 @@ class ChatClient:
             "temperature": over.get("temperature", self.temperature),
             "max_tokens": over.get("max_tokens", self.max_tokens),
         }
-        if "response_format" in over:
-            body["response_format"] = over["response_format"]
+        for k in ("response_format", "logprobs", "top_logprobs", "reasoning",
+                  "provider", "seed"):
+            if k in over:
+                body[k] = over[k]
         key = cache_key(self.model, messages, body)
         if self._cache is not None:
             hit = self._cache.get(key)
@@ -81,6 +83,19 @@ class ChatClient:
                     break
                 await asyncio.sleep(min(30.0, 2**attempt) * (0.5 + random.random()))
         raise RuntimeError(f"chat call failed: {last}")
+
+    async def acomplete_raw(self, conversations: Sequence[list[dict]], **over) -> list[dict]:
+        """Full response objects -- needed when the caller wants logprobs
+        rather than text."""
+        sem = asyncio.Semaphore(self.concurrency)
+        limits = httpx.Limits(max_connections=self.concurrency + 4)
+        async with httpx.AsyncClient(limits=limits) as client:
+
+            async def one(m: list[dict]) -> dict:
+                async with sem:
+                    return await self._post(client, m, **over)
+
+            return await asyncio.gather(*(one(m) for m in conversations))
 
     async def acomplete_many(
         self, conversations: Sequence[list[dict]], **over

@@ -202,7 +202,31 @@ capitalisation and leading-space variants of each token; for a score we take a
 softmax over the level-index tokens and its expectation. Each question is a
 separate prefill sharing the state prefix, mirroring how \jev{} evaluates
 questions in parallel. The scalarisation \eqref{eq:reward} is then byte-identical
-across \jev{}, the LLM judge and the self-judge.
+across \jev{}, the RLAIF judge and the self-judge.
+
+This applies to the \emph{hosted} RLAIF judge as well, which matters because
+the judges small enough to run on our hardware sit at or near chance on held-out
+preference pairs (Section~\ref{sec:res-judges}); comparing against one of those
+would be comparing against a straw man. Three practical details make a hosted
+judge readable:
+
+\begin{itemize}
+  \item \textbf{Reasoning must be off.} A reasoning model spends its first
+    tokens on thought and returns no content to read; with reasoning disabled
+    the answer token is the first token.
+  \item \textbf{The provider must be pinned.} The gateway load-balances across
+    providers and only some return \texttt{logprobs}; without requiring the
+    parameter, a fraction of calls silently fall back to parsing. Requiring it
+    took the unreadable fraction from 50\% to under 5\%.
+  \item \textbf{Prompt order is state-then-question.} The rubric's questions
+    about one completion share a long prefix (system and state) and differ only
+    in a short suffix, so the state goes first. This is the reverse of the usual
+    ``instructions first'' caching advice, which optimises the wrong axis when
+    the repeated span is the state rather than the instruction.
+\end{itemize}
+
+Calls whose logprobs are still unreadable fall back to the emitted word, and we
+report that fraction rather than leaving it implicit.
 
 \subsection{\jev{} as a reward function}
 One request carries the state and all five rubric questions; the answers are
