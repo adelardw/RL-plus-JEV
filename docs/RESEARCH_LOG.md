@@ -145,6 +145,7 @@ points at adaptive probe placement rather than larger K.
 | `gradient_checkpointing` on MPS | Also segfaults. CUDA-only here. |
 | OpenRouter logprobs | Listed in `supported_parameters` but only some providers return them; without `require_parameters` half the calls silently fall back to parsing. |
 | `kernels_logs_stream` | An unbounded live tail that restarts from the beginning after a dropped connection. Consume incrementally, de-duplicate by timestamp. |
+| A silence guard on a silent job | The guard aborts anything that prints nothing for N seconds, which is right for a hung process and wrong for a 7B judge that works correctly for forty minutes without a word. Long loops now report progress in blocks, so the guard measures liveness rather than verbosity -- and the timeout could then be *tightened*, catching real hangs sooner. |
 | Prices from a model-recommendation agent | Quoted `:batch` tier prices as standard. gpt-oss-120b is $0.15/$0.60, not $0.04/$0.18. Always confirm against `/api/v1/models`. |
 
 ### Memory: why the policy is adapted, not fully fine-tuned

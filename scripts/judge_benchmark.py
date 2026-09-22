@@ -31,6 +31,26 @@ from rljevf.rubric import GENERAL_RUBRIC, build_state
 from rljevf.guardrails import require_experiment_host
 
 
+def scored_in_blocks(fn, prompts, comps, label: str, block: int = 50) -> list[float]:
+    """Score in blocks and report progress.
+
+    The guard aborts a job that has printed nothing for too long, which is the
+    right default for a hung process and the wrong one for a 7B judge that
+    works silently for forty minutes. Long loops must say they are alive.
+    """
+    out: list[float] = []
+    n = len(prompts)
+    t0 = time.perf_counter()
+    for i in range(0, n, block):
+        out.extend(fn(prompts=prompts[i:i + block], completions=comps[i:i + block]))
+        done = min(i + block, n)
+        rate = done / max(1e-9, time.perf_counter() - t0)
+        print(f"    {label}: {done}/{n} ({rate:.1f}/s, "
+              f"eta {(n - done) / max(rate, 1e-9) / 60:.1f} min)", flush=True)
+    return out
+
+
+
 def per_pair_correct(chosen: Sequence[float], rejected: Sequence[float]) -> list[bool]:
     """Per-item correctness, kept so judges can be compared *paired* rather
     than as two independent proportions (see rljevf/stats.py)."""
@@ -121,8 +141,10 @@ def main() -> None:
         from rljevf.rewards.bert_rm import BertRMRewardSource
         t = time.perf_counter()
         rm = BertRMRewardSource(args.bert_rm, batch_size=8)
-        sc = rm(prompts, chosen)
-        sr = rm(prompts, rejected)
+        sc = scored_in_blocks(lambda prompts, completions: rm(prompts, completions),
+                               prompts, chosen, "bert_rm chosen", block=100)
+        sr = scored_in_blocks(lambda prompts, completions: rm(prompts, completions),
+                               prompts, rejected, "bert_rm rejected", block=100)
         out["sources"]["bert_rm"] = {**agreement(sc, sr), "wall_s": round(time.perf_counter() - t, 1),
                                      "correct": per_pair_correct(sc, sr)}
         print("bert_rm", {k: round(v, 3) for k, v in out["sources"]["bert_rm"].items() if isinstance(v, float)}, flush=True)
@@ -134,8 +156,8 @@ def main() -> None:
         try:
             t = time.perf_counter()
             j = LLMJudgeRewardSource(model_name=m, batch_size=4)
-            sc = j(prompts=prompts, completions=chosen)
-            sr = j(prompts=prompts, completions=rejected)
+            sc = scored_in_blocks(j, prompts, chosen, f"{m.split('/')[-1]} chosen")
+            sr = scored_in_blocks(j, prompts, rejected, f"{m.split('/')[-1]} rejected")
             key = "llm_judge:" + m.split("/")[-1]
             out["sources"][key] = {**agreement(sc, sr), "wall_s": round(time.perf_counter() - t, 1),
                                    "correct": per_pair_correct(sc, sr)}
