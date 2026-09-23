@@ -238,6 +238,8 @@ class JevClient:
         self.use_cache = use_cache
         self._cache = _Cache(cache_path or CACHE_ROOT / "jev_cache.sqlite") if use_cache else None
         self._key = _api_key()
+        self._backoff_base = 2.0
+        self._throttle_lock = threading.Lock()
 
     # -- single call --------------------------------------------------------
     async def _post(
@@ -264,7 +266,11 @@ class JevClient:
                     JEV_ENDPOINT, headers=headers, json=payload, timeout=90.0
                 )
                 dt = time.perf_counter() - t0
-                if r.status_code in (429, 529) or r.status_code >= 500:
+                # 403 here is not an auth failure -- the key tests fine
+                # immediately afterwards. It is the gateway shedding load from
+                # a burst, and it needs a longer pause than a 5xx does.
+                if r.status_code in (403, 429, 529) or r.status_code >= 500:
+                    self._throttle(r.status_code)
                     raise httpx.HTTPStatusError(
                         f"retryable {r.status_code}", request=r.request, response=r
                     )
@@ -281,13 +287,33 @@ class JevClient:
                 last_err = e
                 if attempt == self.max_retries - 1:
                     break
-                await asyncio.sleep(min(30.0, 2**attempt) * (0.5 + random.random()))
+                base = self._backoff_base
+                await asyncio.sleep(min(120.0, base * 2**attempt) * (0.5 + random.random()))
         raise RuntimeError(f"Jev call failed after {self.max_retries} attempts: {last_err}")
+
+    def _throttle(self, status: int) -> None:
+        """Narrow the pipe after the gateway pushes back.
+
+        Six retries topping out at 30s covers a blip, not a rate-limit window;
+        a burst of 48 concurrent calls that trips one will trip it again on
+        every retry. Halving the in-flight limit and lengthening the backoff
+        makes the client yield instead of insisting.
+        """
+        if status not in (403, 429):
+            return
+        with self._throttle_lock:
+            new = max(4, self.concurrency // 2)
+            if new < self.concurrency:
+                print(f"[jev] {status} from the gateway: concurrency "
+                      f"{self.concurrency} -> {new}", flush=True)
+                self.concurrency = new
+            self._backoff_base = min(20.0, self._backoff_base * 2)
 
     # -- batch --------------------------------------------------------------
     async def aask_many(
         self, states: Sequence[Any], questions: dict
     ) -> list[dict]:
+        # read the current limit: a previous batch may have narrowed it
         sem = asyncio.Semaphore(self.concurrency)
         limits = httpx.Limits(
             max_connections=self.concurrency + 8,
